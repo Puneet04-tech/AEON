@@ -1,39 +1,51 @@
-"""Rate limiting middleware for AEON API"""
+"""In-process sliding-window rate limiting.
+
+Single-process only (Render free tier runs one instance). Per-key windows are
+kept in memory; the blueprint calls for rate limits, not distributed ones.
+"""
 import time
-from typing import Callable, Optional, Dict, Any
-from slowapi import Limiter, rates
-from slowapi.util import get_remote_address
-from slowapi.errors import HTTPExceptionError
+from collections import defaultdict, deque
+from typing import Deque, Dict, Tuple
 
-# Rate limiter - configured per settings
-default_limiter = Limiter(
-    default_limits=["100 per minute"],
-    key_func=get_remote_address
-)
+from fastapi import HTTPException, Request, status
 
 
-def get_limiter() -> Limiter:
-    """Get the default rate limiter instance."""
-    return default_limiter
+class SlidingWindowLimiter:
+    def __init__(self, window_seconds: int = 60, max_requests: int = 120):
+        self.window = window_seconds
+        self.max_requests = max_requests
+        self._hits: Dict[str, Deque[float]] = defaultdict(deque)
+
+    def hit(self, key: str) -> Tuple[bool, int, float]:
+        now = time.monotonic()
+        bucket = self._hits[key]
+        cutoff = now - self.window
+        while bucket and bucket[0] <= cutoff:
+            bucket.popleft()
+        allowed = len(bucket) < self.max_requests
+        if allowed:
+            bucket.append(now)
+        remaining = max(0, self.max_requests - len(bucket))
+        reset = (bucket[0] + self.window) if bucket else now + self.window
+        return allowed, remaining, reset
+
+    def reset(self) -> None:
+        self._hits.clear()
 
 
-def check_rate_limit(
-    request,
-    limiter: Limiter = None,
-    rate: str = None
-) -> bool:
-    """Check if request is within rate limits. Returns True if allowed."""
-    if limiter is None:
-        limiter = default_limiter
-    
-    try:
-        if rate:
-            # Use specific rate limit
-            limiter = Limiter(
-                default_limits=[rate],
-                key_func=get_remote_address
-            )
-        return limiter.check(request)
-    except Exception:
-        # If rate limiting fails, allow the request
-        return True
+def client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def enforce(limiter: SlidingWindowLimiter, request: Request, scope: str = "") -> None:
+    key = f"{scope}:{client_key(request)}"
+    allowed, remaining, reset = limiter.hit(key)
+    if not allowed:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Rate limit exceeded",
+            headers={"Retry-After": str(max(1, int(reset - time.monotonic())))},
+        )

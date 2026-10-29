@@ -1,60 +1,130 @@
-from pydantic_settings import BaseSettings
-from typing import List, Optional
-import os
+"""Environment configuration for the AEON API.
+
+Every secret is read from the environment. Nothing here is ever committed.
+Money is integer micro-USD (1 USD = 1,000,000) everywhere.
+"""
+from functools import lru_cache
+from typing import List, Literal, Optional
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8",
+                                      extra="ignore", case_sensitive=True)
+
+    # Service
+    APP_ENV: Literal["dev", "staging", "production"] = "dev"
+    AUTO_SEED: bool = True
+    APP_VERSION: str = "1.0.0"
+    SERVICE_NAME: str = "aeon-api"
+    LOG_LEVEL: str = "INFO"
+
     # MongoDB
-    MONGODB_URI: str = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-    MONGODB_DB: str = os.getenv("MONGODB_DB", "aeon")
-    
-    # PayPal
-    PAYPAL_CLIENT_ID: str = os.getenv("PAYPAL_CLIENT_ID", "")
-    PAYPAL_CLIENT_SECRET: str = os.getenv("PAYPAL_CLIENT_SECRET", "")
-    PAYPAL_WEBHOOK_ID: str = os.getenv("PAYPAL_WEBHOOK_ID", "")
-    PAYPAL_ENV: str = os.getenv("PAYPAL_ENV", "sandbox")
-    
-    # Treasury & Limits (micro-USD)
-    TREASURY_RESERVE_MICRO: int = int(os.getenv("TREASURY_RESERVE_MICRO", "10000000000"))
-    PAYOUT_MIN_MICRO: int = int(os.getenv("PAYOUT_MIN_MICRO", "10000"))
-    PAYOUT_DAILY_CAP_MICRO: int = int(os.getenv("PAYOUT_DAILY_CAP_MICRO", "1000000000"))
-    APPROVAL_THRESHOLD_MICRO: int = int(os.getenv("APPROVAL_THRESHOLD_MICRO", "25000000"))
-    
-    # LLM
-    CF_ACCOUNT_ID: str = os.getenv("CF_ACCOUNT_ID", "")
-    CF_API_TOKEN: str = os.getenv("CF_API_TOKEN", "")
-    CF_MODEL: str = os.getenv("CF_MODEL", "@cf/meta/llama-3.1-8b-instruct")
-    LLM_PROVIDERS: str = os.getenv("LLM_PROVIDERS", "cloudflare")
-    LLM_MODE: str = os.getenv("LLM_MODE", "live")
-    
-    # Security
-    SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change_me_in_production")
-    HMAC_SHARED_SECRET: str = os.getenv("HMAC_SHARED_SECRET", "change_me_in_production")
-    OPERATOR_PASSWORD_HASH: str = os.getenv("OPERATOR_PASSWORD_HASH", "")
-    
+    MONGODB_URI: str = "mongodb://localhost:27017"
+    MONGODB_DB: str = "aeon"
+
+    # PayPal (sandbox only unless explicitly switched, which the code refuses)
+    PAYPAL_CLIENT_ID: str = ""
+    PAYPAL_CLIENT_SECRET: str = ""
+    PAYPAL_WEBHOOK_ID: str = ""
+    PAYPAL_ENV: Literal["sandbox", "live"] = "sandbox"
+    PAYPAL_MODE: Literal["sandbox", "mock"] = "sandbox"
+    PAYPAL_RETURN_URL: str = "http://localhost:5173/?funding=return"
+    PAYPAL_CANCEL_URL: str = "http://localhost:5173/?funding=cancel"
+    PAYPAL_CURRENCY: str = "USD"
+    PAYPAL_SENDER_BATCH_ID_PREFIX: str = "AEON"
+
+    # Treasury / settlement limits, micro-USD
+    TREASURY_RESERVE_MICRO: int = 20_000_000  # 20 USD kept unspent in the float
+    PAYOUT_MIN_MICRO: int = 10_000
+    PAYOUT_DAILY_CAP_MICRO: int = 1_000_000_000
+    APPROVAL_THRESHOLD_MICRO: int = 25_000_000
+    FUNDING_MAX_MICRO: int = 50_000_000
+    MAX_TRADE_MICRO: int = 5_000_000
+
+    # LLM (Cloudflare Workers AI)
+    CF_ACCOUNT_ID: str = ""
+    CF_API_TOKEN: str = ""
+    CF_MODEL: str = "@cf/meta/llama-3.1-8b-instruct"
+    LLM_PROVIDERS: str = "cloudflare"
+    LLM_MODE: Literal["live", "replay", "off"] = "live"
+    LLM_CACHE_PATH: str = ".llm_cache.json"
+    LLM_TIMEOUT_SECONDS: float = 20.0
+
+    # Secrets
+    SESSION_SECRET: str = "dev-session-secret-change-me"
+    HMAC_SHARED_SECRET: str = "dev-hmac-secret-change-me"
+    OPERATOR_PASSWORD_HASH: str = ""
+    OPERATOR_PASSWORD: str = ""  # dev-only fallback, never set in production
+
     # Workers
-    WORKER_URLS: str = os.getenv("WORKER_URLS", "http://localhost:8001,http://localhost:8002")
-    
-    # API
-    ALLOWED_ORIGIN: str = os.getenv("ALLOWED_ORIGIN", "http://localhost:5173")
-    RATE_LIMIT_WINDOW: int = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
-    RATE_LIMIT_MAX: int = int(os.getenv("RATE_LIMIT_MAX", "100"))
-    JUDGE_SESSION_MINUTES: int = int(os.getenv("JUDGE_SESSION_MINUTES", "30"))
-    JUDGE_SCENARIO_QUOTA: int = int(os.getenv("JUDGE_SCENARIO_QUOTA", "10"))
-    
+    WORKER_URLS: str = "http://localhost:8001,http://localhost:8002"
+    WORKER_TIMEOUT_SECONDS: float = 15.0
+
+    # Web / CORS
+    ALLOWED_ORIGIN: str = "http://localhost:5173"
+    DASHBOARD_DIR: str = "dashboard/dist"
+    ALLOW_MOCK_PAYPAL: bool = True
+
+    # Rate limiting
+    RATE_LIMIT_WINDOW: int = 60
+    RATE_LIMIT_MAX: int = 120
+
+    # Judge mode
+    JUDGE_SESSION_MINUTES: int = 30
+    JUDGE_SCENARIO_QUOTA: int = 10
+
+    # Forecasts (simulated pricing inputs)
+    WEATHER_LAT: float = 37.7749
+    WEATHER_LON: float = -122.4194
+    WEATHER_CACHE_SECONDS: int = 900
+    ENABLE_FORECASTS: bool = True
+
     @property
-    def worker_urls_list(self) -> List[str]:
-        return [url.strip() for url in self.WORKER_URLS.split(",")]
-    
+    def worker_urls(self) -> List[str]:
+        return [u.strip().rstrip("/") for u in self.WORKER_URLS.split(",") if u.strip()]
+
     @property
     def paypal_base_url(self) -> str:
-        if self.PAYPAL_ENV == "live":
-            return "https://api-m.paypal.com"
         return "https://api-m.sandbox.paypal.com"
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+
+    @property
+    def paypal_enabled(self) -> bool:
+        return bool(self.PAYPAL_CLIENT_ID and self.PAYPAL_CLIENT_SECRET)
+
+    @property
+    def paypal_effective_mode(self) -> str:
+        """Sandbox is the only real mode; mock is an explicitly simulated fallback."""
+        if self.PAYPAL_MODE == "mock":
+            if not self.ALLOW_MOCK_PAYPAL:
+                raise RuntimeError("PAYPAL_MODE=mock is disabled by ALLOW_MOCK_PAYPAL=false")
+            return "mock"
+        if not self.paypal_enabled:
+            # No credentials: fall back to the simulated adapter, clearly labelled.
+            return "mock"
+        return "sandbox"
+
+    @property
+    def cors_origins(self) -> List[str]:
+        origins = {self.ALLOWED_ORIGIN, "http://localhost:5173", "http://127.0.0.1:5173"}
+        return [o for o in origins if o]
+
+    def assert_production_safe(self) -> Optional[str]:
+        """Return a warning string when dev-only settings are in use."""
+        if self.APP_ENV != "production":
+            return None
+        if self.SESSION_SECRET.startswith("dev-") or self.HMAC_SHARED_SECRET.startswith("dev-"):
+            raise RuntimeError("Refusing to run production with default secrets")
+        if self.PAYPAL_ENV == "live":
+            raise RuntimeError("AEON is sandbox-only; PAYPAL_ENV=live is not supported")
+        return None
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

@@ -1,74 +1,66 @@
-"""Input validation and sanitization guards for AEON API"""
+"""Reject hostile input early.
+
+Rules:
+  * no object keys starting with '$' or containing '.' (NoSQL operator injection)
+  * bounded string length, no control characters
+  * integer money within a sane range, never floats/bools/strings
+  * identifiers are opaque ULIDs / slugs
+"""
 import re
-import json
-from typing import Any, Dict, Optional, List
+from typing import Any
+
+MAX_STRING = 2000
+MAX_DEPTH = 8
+ID_RE = re.compile(r"^[A-Za-z0-9_-]{3,64}$")
 
 
-def validate_json(data: str, required_fields: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
-    """Validate JSON string and optionally check for required fields."""
-    try:
-        parsed = json.loads(data)
-        if not isinstance(parsed, dict):
-            return None
-        if required_fields:
-            for field in required_fields:
-                if field not in parsed:
-                    return None
-        return parsed
-    except (json.JSONDecodeError, ValueError):
-        return None
+class InputRejected(ValueError):
+    pass
 
 
-def sanitize_string(
-    value: str,
-    max_length: int = 500,
-    allow_unicode: bool = True
-) -> str:
-    """Sanitize a string value to prevent injection attacks."""
+def reject_unsafe_keys(value: Any, depth: int = 0) -> None:
+    if depth > MAX_DEPTH:
+        raise InputRejected("payload too deeply nested")
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise InputRejected("non-string key")
+            if key.startswith("$") or "." in key or key == "__proto__":
+                raise InputRejected(f"illegal key: {key}")
+            reject_unsafe_keys(item, depth + 1)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            reject_unsafe_keys(item, depth + 1)
+
+
+def sanitize_string(value: str, max_len: int = MAX_STRING) -> str:
     if not isinstance(value, str):
-        return ""
-    
-    # Strip control characters except newlines and tabs
-    cleaned = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', value)
-    
-    # Limit length
-    if len(cleaned) > max_length:
-        cleaned = cleaned[:max_length]
-    
-    return cleaned.strip()
+        raise InputRejected("expected string")
+    cleaned = "".join(ch for ch in value if ch == "\n" or ch == "\t" or ord(ch) >= 32)
+    cleaned = cleaned.strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len]
+    return cleaned
 
 
-def validate_agent_id(agent_id: str) -> bool:
-    """Validate agent ID format."""
-    if not agent_id or not isinstance(agent_id, str):
-        return False
-    # Agent IDs are alphanumeric with optional hyphens/underscores
-    pattern = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
-    return bool(pattern.match(agent_id))
+def require_id(value: str, field: str = "id") -> str:
+    if not isinstance(value, str) or not ID_RE.match(value):
+        raise InputRejected(f"invalid {field}")
+    return value
 
 
-def validate_amount(amount: Any, min_val: int = 1, max_val: int = 1000000000000) -> bool:
-    """Validate that an amount is a positive integer within bounds."""
-    try:
-        amt = int(amount)
-        return min_val <= amt <= max_val
-    except (ValueError, TypeError):
-        return False
+def require_money(value: Any, field: str = "amount_micro", minimum: int = 1,
+                  maximum: int = 10**15) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InputRejected(f"{field} must be an integer number of micro-USD")
+    if value < minimum or value > maximum:
+        raise InputRejected(f"{field} out of range")
+    return value
 
 
-def validate_trade_data(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Validate trade creation data."""
-    required = ["buyer_id", "seller_id", "price_micros", "job_id"]
-    validated = validate_json(json.dumps(data), required_fields=required)
-    if validated is None:
-        return None
-    
-    # Validate specific fields
-    if not validate_agent_id(validated.get("buyer_id", "")):
-        return None
-    if not validate_agent_id(validated.get("seller_id", "")):
-        return None
-    if not validate_amount(validated.get("price_micros"), min_val=1):
-        return None
-    
-    return validated
+def require_positive_int(value: Any, field: str, minimum: int = 1, maximum: int = 10**9) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InputRejected(f"{field} must be an integer")
+    if not minimum <= value <= maximum:
+        raise InputRejected(f"{field} out of range")
+    return value

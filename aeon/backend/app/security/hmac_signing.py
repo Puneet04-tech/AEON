@@ -1,52 +1,54 @@
-"""HMAC signing for idempotency keys and request verification"""
-import hmac
+"""HMAC request signing used for worker job dispatch and PayPal-style webhooks.
+
+Canonical string: METHOD \n PATH \n TIMESTAMP \n NONCE \n SHA256(body)
+Signatures are compared with hmac.compare_digest and never logged.
+"""
 import hashlib
-import base64
-from typing import Any, Optional
+import hmac
+import time
+from typing import Optional
 
-# HMAC secret - should be set via environment variable
-HMAC_SECRET = __import__("os").getenv("HMAC_SHARED_SECRET", "default_shared_secret_change_me")
+from app.settings import settings
 
-
-def sign_payload(payload: dict, secret: str = None) -> str:
-    """Sign a payload dictionary and return base64-encoded signature."""
-    if secret is None:
-        secret = HMAC_SECRET
-    payload_bytes = str(sorted(payload.items())).encode()
-    signature = hmac.new(
-        secret.encode(), payload_bytes, hashlib.sha256
-    ).digest()
-    return base64.b64encode(signature).decode()
+MAX_SKEW_SECONDS = 300
 
 
-def verify_payload(token: str, payload: dict = None, secret: str = None) -> Optional[dict]:
-    """Verify a payload signature. Returns payload if valid, None otherwise."""
-    if secret is None:
-        secret = HMAC_SECRET
-    
-    # If payload is provided, re-sign and compare
-    if payload is not None:
-        expected_signature = sign_payload(payload, secret)
-        # Compare with the provided token
-        try:
-            # token could be just the signature or payload:sig format
-            if ":" in token:
-                _, sig = token.split(":", 1)
-            else:
-                sig = token
-            
-            signature_bytes = base64.b64decode(sig)
-            expected_bytes = base64.b64decode(expected_signature)
-            
-            return hmac.compare_digest(signature_bytes, expected_bytes)
-        except Exception:
-            return False
-    
-    return None
+def _secret(secret: Optional[str]) -> bytes:
+    return (secret or settings.HMAC_SHARED_SECRET).encode()
 
 
-def compute_hmac(data: bytes, key: bytes = None) -> str:
-    """Compute HMAC-SHA256 of data with optional key."""
-    if key is None:
-        key = HMAC_SECRET.encode()
-    return hmac.new(key, data, hashlib.sha256).hexdigest()
+def body_digest(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest()
+
+
+def canonical_string(method: str, path: str, timestamp: str, nonce: str, body: bytes) -> str:
+    return "\n".join([method.upper(), path, timestamp, nonce, body_digest(body)])
+
+
+def sign(method: str, path: str, timestamp: str, nonce: str, body: bytes,
+         secret: Optional[str] = None) -> str:
+    msg = canonical_string(method, path, timestamp, nonce, body).encode()
+    return hmac.new(_secret(secret), msg, hashlib.sha256).hexdigest()
+
+
+def sign_bytes(data: bytes, secret: Optional[str] = None) -> str:
+    return hmac.new(_secret(secret), data, hashlib.sha256).hexdigest()
+
+
+def verify(method: str, path: str, timestamp: str, nonce: str, body: bytes,
+           signature: str, secret: Optional[str] = None,
+           now: Optional[int] = None) -> tuple[bool, str]:
+    """Return (ok, reason). Rejects stale timestamps before touching the body."""
+    try:
+        ts = int(timestamp)
+    except (TypeError, ValueError):
+        return False, "bad_timestamp"
+    now = int(time.time()) if now is None else now
+    if abs(now - ts) > MAX_SKEW_SECONDS:
+        return False, "stale_timestamp"
+    if not nonce or len(nonce) < 8:
+        return False, "bad_nonce"
+    expected = sign(method, path, timestamp, nonce, body, secret)
+    if not hmac.compare_digest(expected, signature or ""):
+        return False, "bad_signature"
+    return True, "ok"

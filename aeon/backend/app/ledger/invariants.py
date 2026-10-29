@@ -1,55 +1,58 @@
+"""Pure invariant helpers.
+
+These operate on plain data so they can be property-tested without a database.
 """
-AEON Ledger Invariants - Critical correctness checks for the double-entry ledger
-
-These invariants ensure the ledger remains correct and auditable under all conditions,
-including concurrent writes, idempotent operations, and failure recovery.
-"""
-from typing import Dict, Any, List
-from datetime import datetime, timedelta
+from typing import Dict, Iterable, List, Sequence
 
 
-class LedgerInvariants:
-    """Collection of ledger invariants that must always hold."""
-    
-    @staticmethod
-    def verify_double_entry(entry_set: List[dict]) -> bool:
-        """Verify that a set of ledger entries forms a valid double-entry.
-        
-        For every debit, there must be a corresponding credit of equal amount.
-        """
-        total_debits = sum(e["amount_micros"] for e in entry_set if e["type"] == "debit")
-        total_credits = sum(e["amount_micros"] for e in entry_set if e["type"] == "credit")
-        
-        # Debits should be negative, credits positive
-        # The sum should be zero for a valid double-entry
-        return total_debits + total_credits == 0
-    
-    @staticmethod
-    def verify_no_negative_balances(balances: Dict[str, int]) -> bool:
-        """Verify that no account has a negative balance (overdraft)."""
-        for account, balance in balances.items():
-            if balance < 0:
+def txn_balances(lines: Sequence[dict]) -> int:
+    return sum(int(line["amount_micro"]) for line in lines)
+
+
+def is_balanced(lines: Sequence[dict]) -> bool:
+    return txn_balances(lines) == 0
+
+
+def all_transactions_balanced(entries: Iterable[dict]) -> bool:
+    totals: Dict[str, int] = {}
+    for entry in entries:
+        totals[entry["txn_id"]] = totals.get(entry["txn_id"], 0) + int(entry["amount_micro"])
+    return all(v == 0 for v in totals.values())
+
+
+def wallets_non_negative(wallets: Iterable[dict]) -> bool:
+    fields = ("available_micro", "escrow_micro", "bond_micro")
+    return all(int(w.get(f, 0)) >= 0 for w in wallets for f in fields)
+
+
+def double_entry_holds(entries: Iterable[dict], wallets: Iterable[dict]) -> bool:
+    entries = list(entries)
+    return (sum(int(e["amount_micro"]) for e in entries) == 0
+            and all_transactions_balanced(entries)
+            and wallets_non_negative(wallets))
+
+
+def ledger_matches_wallets(entries: Iterable[dict], wallets: Dict[str, dict]) -> bool:
+    """Wallet caches must equal the sum of their ledger lines."""
+    expected: Dict[str, Dict[str, int]] = {}
+    field_for = {"agent_available": "available_micro", "agent_escrow": "escrow_micro", "agent_bond": "bond_micro"}
+    for entry in entries:
+        field = field_for.get(entry["account"])
+        if not field:
+            continue
+        bucket = expected.setdefault(entry["agent_id"], {"available_micro": 0, "escrow_micro": 0, "bond_micro": 0})
+        bucket[field] += int(entry["amount_micro"])
+    for agent_id, bucket in expected.items():
+        wallet = wallets.get(agent_id)
+        if wallet is None:
+            return False
+        for field, amount in bucket.items():
+            if int(wallet.get(field, 0)) != amount:
                 return False
-        return True
-    
-    @staticmethod
-    def verify_idempotency_key_not_expired(expires_at: int) -> bool:
-        """Verify that an idempotency key hasn't expired.
-        
-        expires_at is a Unix timestamp.
-        """
-        now = int(datetime.utcnow().timestamp())
-        return now <= expires_at
-    
-    @staticmethod
-    def verify_audit_completeness(audit_entries: List[dict], 
-                                  expected_actions: List[str]) -> bool:
-        """Verify that all expected actions are recorded in the audit log."""
-        recorded_actions = {e["action"] for e in audit_entries}
-        return all(action in recorded_actions for action in expected_actions)
-    
-    @staticmethod
-    def verify_timestamp_ordering(audit_entries: List[dict]) -> bool:
-        """Verify that audit log entries are in chronological order."""
-        timestamps = [e["timestamp"] for e in audit_entries]
-        return all(timestamps[i] <= timestamps[i+1] for i in range(len(timestamps)-1))
+    return True
+
+
+def assert_balanced(lines: List[dict]) -> List[dict]:
+    if not is_balanced(lines):
+        raise ValueError(f"unbalanced transaction: {txn_balances(lines)}")
+    return lines
