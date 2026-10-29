@@ -1,7 +1,235 @@
 {
   "info": {
     "name": "AEON API",
+    "description": "Agent-to-Agent Settlement Network. PayPal sandbox only. Run 'Operator login' first: it stores {{token}} for every other request.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "item": []
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "token", "value": "" },
+    { "key": "buyerId", "value": "agt_atlas" },
+    { "key": "sellerId", "value": "agt_cirrus" },
+    { "key": "tradeId", "value": "" },
+    { "key": "fundingId", "value": "" },
+    { "key": "approvalId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Session",
+      "item": [
+        {
+          "name": "Operator login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/session/login",
+            "body": { "mode": "raw", "raw": "{\"password\":\"demo-operator\"}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('token', pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Judge session",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/v1/session/judge", "body": { "mode": "raw", "raw": "{}" } },
+          "event": [
+            { "listen": "test", "script": { "exec": ["pm.collectionVariables.set('token', pm.response.json().token);"] } }
+          ]
+        },
+        { "name": "Who am I", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/session/me" } }
+      ]
+    },
+    {
+      "name": "Agents",
+      "item": [
+        { "name": "List agents", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/agents" } },
+        {
+          "name": "Create agent",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/agents",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"id\":\"agt_postman\",\"name\":\"Postman\",\"role\":\"consumer\",\"paypal_email\":\"postman@example.com\"}"
+            }
+          }
+        },
+        {
+          "name": "Update policy",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/agents/{{buyerId}}/policy",
+            "body": { "mode": "raw", "raw": "{\"per_trade_cap_micro\":5000000}" }
+          }
+        },
+        { "name": "Pause agent", "request": { "method": "POST", "url": "{{baseUrl}}/api/v1/agents/{{sellerId}}/pause" } },
+        { "name": "Resume agent", "request": { "method": "POST", "url": "{{baseUrl}}/api/v1/agents/{{sellerId}}/resume" } }
+      ]
+    },
+    {
+      "name": "Trades",
+      "item": [
+        {
+          "name": "Run trade",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/trades",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"buyer_id\":\"{{buyerId}}\",\"seller_id\":\"{{sellerId}}\",\"job\":{\"type\":\"image_resize\",\"size\":307200,\"params\":{\"width\":320,\"height\":240},\"deadline_s\":30}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('ledger invariant holds', () => pm.expect(['SETTLED','NEGOTIATION_FAILED','REJECTED_BY_GUARDRAIL']).to.include(pm.response.json().state));",
+                  "pm.collectionVariables.set('tradeId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        { "name": "List trades", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/trades?limit=20" } },
+        { "name": "Trade detail", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/trades/{{tradeId}}" } },
+        { "name": "Negotiation transcript", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/trades/{{tradeId}}/negotiation" } }
+      ]
+    },
+    {
+      "name": "Ledger",
+      "item": [
+        { "name": "Invariant", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/ledger/invariant" },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('balanced', () => pm.expect(pm.response.json().ok).to.eql(true));"] } }] },
+        { "name": "Entries", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/ledger/entries?limit=50" } },
+        { "name": "Balances", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/ledger/balances" } },
+        { "name": "Netting preview", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/ledger/netting" } }
+      ]
+    },
+    {
+      "name": "Funding",
+      "item": [
+        {
+          "name": "Create PayPal order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/funding",
+            "body": { "mode": "raw", "raw": "{\"agent_id\":\"{{buyerId}}\",\"amount_micro\":2000000}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('fundingId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Capture funding",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/v1/funding/{{fundingId}}/capture"
+          }
+        },
+        { "name": "List funding", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/funding" } }
+      ]
+    },
+    {
+      "name": "Settlement",
+      "item": [
+        {
+          "name": "Run settlement",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/settlement/run",
+            "body": { "mode": "raw", "raw": "{\"has_approval\":false}" }
+          }
+        },
+        { "name": "Batches", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/settlement/batches" } },
+        { "name": "Payouts", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/payouts" } }
+      ]
+    },
+    {
+      "name": "Approvals",
+      "item": [
+        { "name": "Pending approvals", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/approvals?state=PENDING" } },
+        {
+          "name": "Approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/approvals/{{approvalId}}/decision",
+            "body": { "mode": "raw", "raw": "{\"decision\":\"APPROVED\",\"reason\":\"reviewed\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scenarios",
+      "item": [
+        { "name": "List scenarios", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/scenarios" } },
+        { "name": "Run S1", "request": { "method": "POST", "url": "{{baseUrl}}/api/v1/scenarios/S1/run", "body": { "mode": "raw", "raw": "{}" } } },
+        { "name": "Run S4", "request": { "method": "POST", "url": "{{baseUrl}}/api/v1/scenarios/S4/run", "body": { "mode": "raw", "raw": "{}" } } },
+        { "name": "Runs", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/scenarios/runs" } }
+      ]
+    },
+    {
+      "name": "Control",
+      "item": [
+        { "name": "Status", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/control/status" } },
+        {
+          "name": "Kill switch on",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/control/kill-switch",
+            "body": { "mode": "raw", "raw": "{\"active\":true,\"reason\":\"drill\"}" }
+          }
+        },
+        {
+          "name": "Kill switch off",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/control/kill-switch",
+            "body": { "mode": "raw", "raw": "{\"active\":false}" }
+          }
+        },
+        { "name": "Worker health", "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/workers/health" } },
+        { "name": "Health", "request": { "method": "GET", "url": "{{baseUrl}}/healthz" } }
+      ]
+    }
+  ]
 }

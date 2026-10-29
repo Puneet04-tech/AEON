@@ -1,0 +1,80 @@
+# Render blueprint: API plus two compute workers.
+# Secrets (sync: false) are set in the Render dashboard, never committed.
+services:
+  - type: web
+    name: aeon-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: aeon
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: PAYPAL_MODE
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: CF_ACCOUNT_ID
+        sync: false
+      - key: CF_API_TOKEN
+        sync: false
+      - key: CF_MODEL
+        value: "@cf/meta/llama-3.1-8b-instruct"
+      - key: LLM_MODE
+        value: live
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: HMAC_SHARED_SECRET
+        sync: false
+      - key: OPERATOR_PASSWORD_HASH
+        sync: false
+      - key: WORKER_URLS
+        value: https://aeon-worker-atlas.onrender.com,https://aeon-worker-boreal.onrender.com
+      - key: ALLOWED_ORIGIN
+        value: https://aeon-api.onrender.com
+      - key: AUTO_SEED
+        value: "true"
+
+  - type: web
+    name: aeon-worker-atlas
+    runtime: python
+    plan: free
+    rootDir: worker
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: WORKER_ID
+        value: worker-atlas
+      - key: HMAC_SHARED_SECRET
+        sync: false
+
+  - type: web
+    name: aeon-worker-boreal
+    runtime: python
+    plan: free
+    rootDir: worker
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: WORKER_ID
+        value: worker-boreal
+      - key: HMAC_SHARED_SECRET
+        sync: false

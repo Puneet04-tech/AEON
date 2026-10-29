@@ -1,0 +1,82 @@
+# Local demo stack: MongoDB + API + two compute workers + the console.
+#   cp .env.example .env      # fill in sandbox PayPal + Cloudflare values (optional)
+#   docker compose up --build
+#   open http://localhost:5173
+#
+# Everything money-related here is PayPal sandbox. If no PayPal credentials are
+# configured the API falls back to the clearly-labelled simulated adapter and
+# says so in the UI footer and /api/v1/config.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--quiet"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "27017:27017"
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DB: aeon
+      WORKER_URLS: http://worker-atlas:8001,http://worker-boreal:8002
+      ALLOWED_ORIGIN: http://localhost:5173
+      AUTO_SEED: "true"
+      PAYPAL_ENV: sandbox
+      PAYPAL_MODE: ${PAYPAL_MODE:-sandbox}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      CF_MODEL: ${CF_MODEL:-@cf/meta/llama-3.1-8b-instruct}
+      LLM_MODE: ${LLM_MODE:-live}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
+      HMAC_SHARED_SECRET: ${HMAC_SHARED_SECRET:-dev-hmac-secret-change-me}
+      OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-demo-operator}
+      DASHBOARD_DIR: dashboard/dist
+    ports:
+      - "8000:8000"
+
+  worker-atlas:
+    build: ./worker
+    restart: unless-stopped
+    environment:
+      WORKER_ID: worker-atlas
+      WORKER_PORT: "8001"
+      HMAC_SHARED_SECRET: ${HMAC_SHARED_SECRET:-dev-hmac-secret-change-me}
+    ports:
+      - "8001:8001"
+
+  worker-boreal:
+    build: ./worker
+    restart: unless-stopped
+    environment:
+      WORKER_ID: worker-boreal
+      WORKER_PORT: "8002"
+      HMAC_SHARED_SECRET: ${HMAC_SHARED_SECRET:-dev-hmac-secret-change-me}
+    ports:
+      - "8002:8002"
+
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+
+volumes:
+  mongo-data:
