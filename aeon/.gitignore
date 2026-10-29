@@ -21,4 +21,4 @@ htmlcov/
 *.swp
 *.swo
 *~
-render.yaml.bak
+# Docker removed - no Dockerfiles or compose files

@@ -1,0 +1,280 @@
+/* AEON Design Tokens - Rose Liquid Glass & Neumorphic Architecture */
+/* Generated from DESIGN.md specification */
+
+/* Root theme variables - Light theme default */
+:root {
+  --theme-transition: background-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+                      box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Neutrals: 9-Step Calibrated Cool Slate Grid */
+  --neutral-bg: #F4F6F8;
+  --neutral-surface: #EBF0F5;
+  --neutral-surface-2: #E1E7EE;
+  --neutral-border: #D7DEE6;
+  --neutral-border-strong: #C5CDD7;
+  --neutral-text-min: #7E8B9B;
+  --neutral-text-mid: #4A5564;
+  --neutral-text: #2C3540;
+  --neutral-text-max: #181E26;
+
+  /* The Signature Accent: Rose Liquid Glass Engine */
+  --rose-glass-tint: rgba(244, 63, 94, 0.04);
+  --rose-glass-glow: rgba(251, 113, 133, 0.15);
+  --accent-solid: #E11D48;
+  --accent-focus: rgba(225, 29, 72, 0.12);
+
+  /* Semantic Money & Security Matrix */
+  --semantic-in: #0D9488;
+  --semantic-out: #D97706;
+  --semantic-risk: #E11D48;
+  --semantic-pending: #4B5563;
+
+  /* Neumorphic Shadow Structs */
+  --shadow-raised: -4px -4px 9px rgba(255, 255, 255, 0.9),
+                    4px 4px 9px rgba(166, 180, 200, 0.45);
+  --shadow-inset: inset -2px -2px 5px rgba(255, 255, 255, 0.8),
+                   inset 2px 2px 5px rgba(166, 180, 200, 0.5);
+  --shadow-overlay: 0px 12px 32px rgba(24, 30, 38, 0.08);
+}
+
+/* Dark theme */
+[data-theme='dark'] {
+  --neutral-bg: #121519;
+  --neutral-surface: #1A1E24;
+  --neutral-surface-2: #222831;
+  --neutral-border: #2D3541;
+  --neutral-border-strong: #3F4A5B;
+  --neutral-text-min: #627288;
+  --neutral-text-mid: #94A6BF;
+  --neutral-text: #D2DCEC;
+  --neutral-text-max: #F1F5F9;
+
+  --rose-glass-tint: rgba(251, 113, 133, 0.02);
+  --rose-glass-glow: rgba(244, 63, 94, 0.25);
+  --accent-solid: #FB7185;
+  --accent-focus: rgba(251, 113, 133, 0.15);
+
+  --shadow-raised: -3px -3px 7px rgba(38, 45, 56, 0.4),
+                    3px 3px 7px rgba(5, 6, 8, 0.7);
+  --shadow-inset: inset -2px -2px 5px rgba(38, 45, 56, 0.3),
+                   inset 2px 2px 5px rgba(5, 6, 8, 0.6);
+  --shadow-overlay: 0px 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Base body styling per DESIGN.md */
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--neutral-bg);
+  color: var(--neutral-text);
+  font-family: 'IBM Plex Sans', sans-serif;
+  overflow: hidden;
+}
+
+/* Workspace grid layout per DESIGN.md section 2 */
+.aeon-workspace-grid {
+  display: grid;
+  grid-template-columns: 56px 1fr 360px;
+  grid-template-rows: 36px 1fr;
+  width: 100%; height: 100%;
+}
+
+/* Top System Environment Strip per DESIGN.md Component 1 */
+.sys-top-bar {
+  grid-column: 1 / -1;
+  height: 36px;
+  background-color: var(--neutral-surface);
+  border-bottom: 1px solid var(--neutral-border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
+
+/* Left Rail Navigation per DESIGN.md */
+.left-rail-navigation {
+  grid-column: 1;
+  background-color: var(--neutral-surface);
+  border-right: 1px solid var(--neutral-border-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12px;
+}
+
+/* Central Control Viewport per DESIGN.md */
+.main-operation-theater {
+  grid-column: 2;
+  display: grid;
+  grid-template-rows: 4fr 5fr;
+  border-right: 1px solid var(--neutral-border-strong);
+  background-color: var(--neutral-bg);
+}
+
+/* Topology Canvas Pane per DESIGN.md Component 2 */
+.topology-canvas-pane {
+  background: var(--neutral-surface);
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--neutral-border-strong);
+}
+
+/* Data Grid Tabs Pane per DESIGN.md Component 3 */
+.data-grid-tabs-pane {
+  padding: 12px;
+  background-color: var(--neutral-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Right Stream Drawer per DESIGN.md Component 5 */
+.right-stream-drawer {
+  grid-column: 3;
+  background-color: var(--neutral-surface);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Kill Switch Chip styling per DESIGN.md */
+.kill-switch-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.kill-switch-active {
+  border-left: 2px solid var(--semantic-risk);
+  color: var(--semantic-risk);
+}
+
+.kill-switch-inactive {
+  border-left: 2px solid var(--semantic-in);
+  color: var(--semantic-in);
+}
+
+/* Node pane styling per DESIGN.Component 2 */
+.aeon-node-pane {
+  background: rgba(235, 240, 245, 0.6);
+  backdrop-filter: blur(12px) saturate(110%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: var(--shadow-raised);
+  border-radius: 4px;
+}
+
+/* Edge animation classes */
+.edge-dash-inline {
+  stroke-dasharray: 4 2;
+  stroke-dashoffset: 0;
+}
+
+.edge-animate {
+  animation: edge-dash-flow 5s linear infinite;
+}
+
+@keyframes edge-dash-flow {
+  to { stroke-dashoffset: -10; }
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .edge-animate {
+    animation: none !important;
+    stroke-dasharray: none !important;
+  }
+}
+
+/* AG Grid overrides per DESIGN.md Component 3 */
+.ag-header {
+  background: var(--neutral-surface-2) !important;
+  font-weight: 600 !important;
+  border: 1px solid var(--neutral-border) !important;
+}
+
+.ag-row {
+  height: 24px !important;
+  background: transparent !important;
+}
+
+.ag-cell {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* Row selection styling per DESIGN.md */
+.ag-row-selected .ag-cell {
+  background: var(--neutral-surface-2) !important;
+  mask-box-image: linear-gradient(8deg, var(--accent-solid) 8%, transparent 0%);
+}
+
+/* Approval panel styling per DESIGN.md Component 4 */
+.approval-panel {
+  background: rgba(235, 240, 245, 0.7);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--neutral-border-strong);
+  box-shadow: var(--shadow-raised);
+  border-radius: 4px;
+  padding: 16px;
+}
+
+/* SSE Log Drawer styling per DESIGN.md Component 5 */
+.sse-log-entry {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--neutral-text-mid);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--neutral-border);
+}
+
+.sse-log-guardrail-violation {
+  color: var(--semantic-risk);
+  background: rgba(225, 29, 72, 0.1);
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+/* Judge sandbox controller per DESIGN.md Component 5 */
+.sandbox-controller {
+  background: rgba(235, 240, 245, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--neutral-border-strong);
+  box-shadow: var(--shadow-raised);
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.sandbox-toggle {
+  border-radius: 2px;
+  font-size: 11px;
+}
+
+/* Master-detail layout for AG Grid */
+.master-detail-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Responsiveness - target viewports per DESIGN.md */
+@media (max-width: 1280px) {
+  .aeon-workspace-grid {
+    grid-template-columns: 48px 1fr 320px;
+  }
+}
+
+@media (max-width: 1440px) {
+  .aeon-workspace-grid {
+    grid-template-columns: 48px 1fr 320px;
+  }
+}
+
+@media (max-width: 1920px) {
+  .aeon-workspace-grid {
+    grid-template-columns: 56px 1fr 360px;
+  }
+}
