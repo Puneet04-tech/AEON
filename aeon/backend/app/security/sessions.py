@@ -138,19 +138,30 @@ async def load_session(db, token: str) -> Session:
                    quotas=row.get("quotas", {}))
 
 
-async def current_session(
-    request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-) -> Session:
+def extract_token(request: Request,
+                  credentials: Optional[HTTPAuthorizationCredentials] = None) -> str:
     token = credentials.credentials if credentials else ""
     if not token:
-        # SSE and <video>/<img> clients cannot set headers; allow a query token.
+        # EventSource cannot set headers; SSE clients may pass ?token=
         token = request.query_params.get("token", "")
+    return token
+
+
+async def session_from_request(request: Request, token: str = "") -> Session:
+    """Resolve a session outside FastAPI's dependency injection (SSE routes)."""
+    token = token or extract_token(request)
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing session token")
     from app.db.client import get_database
 
     return await load_session(get_database(), token)
+
+
+async def current_session(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+) -> Session:
+    return await session_from_request(request, extract_token(request, credentials))
 
 
 def require_role(*roles: Iterable[str]):

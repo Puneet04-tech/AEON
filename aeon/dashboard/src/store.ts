@@ -1,0 +1,261 @@
+import { create } from "zustand";
+import {
+  type Agent, type Approval, type AuditEntry, type InvariantReport, type LedgerEntry,
+  type PayoutItem, type PublicConfig, type Role, type StreamEvent, type Trade,
+  api, getToken, setToken,
+} from "./api";
+
+export type Tab = "ledger" | "trades" | "payouts" | "agents" | "approvals" | "audit";
+
+interface ConsoleState {
+  booted: boolean;
+  config: PublicConfig | null;
+  role: Role | null;
+  quotas: { scenarios_left: number } | null;
+  agents: Agent[];
+  trades: Trade[];
+  entries: LedgerEntry[];
+  payouts: PayoutItem[];
+  batches: any[];
+  approvals: Approval[];
+  audit: AuditEntry[];
+  invariant: InvariantReport | null;
+  killSwitch: { active: boolean; reason?: string } ;
+  status: any | null;
+  workers: any[];
+  events: StreamEvent[];
+  selectedTradeId: string | null;
+  transcript: any[];
+  tab: Tab;
+  busy: string | null;
+  toast: { text: string; kind: "ok" | "error" } | null;
+
+  bootstrap: () => Promise<void>;
+  login: (password: string) => Promise<void>;
+  judge: () => Promise<void>;
+  logout: () => void;
+  refresh: () => Promise<void>;
+  selectTrade: (id: string | null) => Promise<void>;
+  runTrade: (buyerId: string, sellerId: string, job: "image_resize" | "matrix_multiply") => Promise<void>;
+  runSettlement: () => Promise<void>;
+  runScenario: (name: string) => Promise<void>;
+  toggleKillSwitch: () => Promise<void>;
+  decide: (id: string, decision: "APPROVED" | "REJECTED") => Promise<void>;
+  toggleAgent: (agent: Agent) => Promise<void>;
+  fund: (agentId: string, amountMicro: number) => Promise<void>;
+  setTab: (tab: Tab) => void;
+  pushEvent: (event: StreamEvent) => void;
+  setEvents: (events: StreamEvent[]) => void;
+  notify: (text: string, kind?: "ok" | "error") => void;
+  clearToast: () => void;
+}
+
+const MAX_EVENTS = 300;
+
+export const useConsole = create<ConsoleState>((set, get) => ({
+  booted: false,
+  config: null,
+  role: null,
+  quotas: null,
+  agents: [],
+  trades: [],
+  entries: [],
+  payouts: [],
+  batches: [],
+  approvals: [],
+  audit: [],
+  invariant: null,
+  killSwitch: { active: false },
+  status: null,
+  workers: [],
+  events: [],
+  selectedTradeId: null,
+  transcript: [],
+  tab: "trades",
+  busy: null,
+  toast: null,
+
+  bootstrap: async () => {
+    try {
+      const config = await api.config();
+      set({ config, booted: true });
+      if (getToken()) {
+        try {
+          const me = await api.me();
+          set({ role: me.role, quotas: me.quotas });
+          await get().refresh();
+        } catch {
+          setToken(null);
+        }
+      }
+      const recent = await api.recentEvents(0).catch(() => ({ events: [] }));
+      set({ events: recent.events.slice(-MAX_EVENTS) });
+    } catch {
+      set({ booted: true });
+    }
+  },
+
+  login: async (password) => {
+    const session = await api.login(password);
+    setToken(session.token);
+    const me = await api.me();
+    set({ role: me.role, quotas: me.quotas });
+    await get().refresh();
+  },
+
+  judge: async () => {
+    const session = await api.judge();
+    setToken(session.token);
+    set({ role: "judge", quotas: session.quotas });
+    await get().refresh();
+  },
+
+  logout: () => {
+    setToken(null);
+    set({ role: null, quotas: null, agents: [], trades: [], entries: [] });
+  },
+
+  refresh: async () => {
+    const results = await Promise.allSettled([
+      api.agents(), api.trades(), api.entries(), api.payouts(), api.batches(),
+      api.approvals(), api.audit(), api.invariant(), api.status(), api.workers(),
+    ]);
+    const value = <T,>(index: number): T | null =>
+      results[index].status === "fulfilled" ? (results[index] as PromiseFulfilledResult<T>).value : null;
+    const agents = value<{ agents: Agent[] }>(0);
+    const trades = value<{ trades: Trade[] }>(1);
+    const entries = value<{ entries: LedgerEntry[] }>(2);
+    const payouts = value<{ payouts: PayoutItem[] }>(3);
+    const batches = value<{ settlements: any[] }>(4);
+    const approvals = value<{ approvals: Approval[] }>(5);
+    const audit = value<{ audit: AuditEntry[] }>(6);
+    const invariant = value<InvariantReport>(7);
+    const status = value<any>(8);
+    const workers = value<{ workers: any[] }>(9);
+    set({
+      agents: agents?.agents ?? get().agents,
+      trades: trades?.trades ?? get().trades,
+      entries: entries?.entries ?? get().entries,
+      payouts: payouts?.payouts ?? get().payouts,
+      batches: batches?.settlements ?? get().batches,
+      approvals: approvals?.approvals ?? get().approvals,
+      audit: audit?.audit ?? get().audit,
+      invariant: invariant ?? get().invariant,
+      status: status ?? get().status,
+      killSwitch: status?.kill_switch ?? get().killSwitch,
+      workers: workers?.workers ?? get().workers,
+    });
+  },
+
+  selectTrade: async (id) => {
+    set({ selectedTradeId: id, transcript: [] });
+    if (!id) return;
+    try {
+      const detail = await api.trade(id);
+      set({ transcript: detail.negotiation_transcript ?? [] });
+    } catch {
+      set({ transcript: [] });
+    }
+  },
+
+  runTrade: async (buyerId, sellerId, job) => {
+    set({ busy: "Running trade…" });
+    try {
+      const jobSpec = job === "matrix_multiply"
+        ? { type: job, size: 160, params: { n: 160 }, deadline_s: 30 }
+        : { type: job, size: 640 * 480, params: { width: 320, height: 240 }, deadline_s: 30 };
+      const trade = await api.runTrade(buyerId, jobSpec, sellerId || undefined);
+      set({ toast: { text: `Trade ${trade.id.slice(0, 12)} → ${trade.state}`, kind: trade.state === "SETTLED" ? "ok" : "error" } });
+      await get().selectTrade(trade.id);
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "trade failed", kind: "error" } });
+    } finally {
+      set({ busy: null });
+    }
+  },
+
+  runSettlement: async () => {
+    set({ busy: "Settling…" });
+    try {
+      const batch = await api.settlement();
+      set({ toast: { text: `Settlement ${batch.state ?? "submitted"}`, kind: "ok" } });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "settlement failed", kind: "error" } });
+    } finally {
+      set({ busy: null });
+    }
+  },
+
+  runScenario: async (name) => {
+    set({ busy: `Running ${name}…` });
+    try {
+      const run = await api.scenario(name);
+      set({ toast: { text: `${name}: ${run.state}`, kind: run.state === "COMPLETED" ? "ok" : "error" } });
+      const me = await api.me().catch(() => null);
+      if (me) set({ quotas: me.quotas });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "scenario failed", kind: "error" } });
+    } finally {
+      set({ busy: null });
+    }
+  },
+
+  toggleKillSwitch: async () => {
+    const active = !get().killSwitch.active;
+    try {
+      await api.killSwitch(active, active ? "Operator pressed the kill switch" : "Operator resumed the system");
+      set({ killSwitch: { active }, toast: { text: active ? "Kill switch ACTIVE — writes blocked" : "System resumed", kind: "ok" } });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "kill switch failed", kind: "error" } });
+    }
+  },
+
+  decide: async (id, decision) => {
+    try {
+      await api.decide(id, decision);
+      set({ toast: { text: `Approval ${decision.toLowerCase()}`, kind: "ok" } });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "decision failed", kind: "error" } });
+    }
+  },
+
+  toggleAgent: async (agent) => {
+    try {
+      if (agent.status === "ACTIVE") await api.pause(agent.id);
+      else await api.resume(agent.id);
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "agent update failed", kind: "error" } });
+    }
+  },
+
+  fund: async (agentId, amountMicro) => {
+    set({ busy: "Creating PayPal order…" });
+    try {
+      const funding = await api.createFunding(agentId, amountMicro);
+      await api.captureFunding(funding.id);
+      set({ toast: { text: `Funded ${agentId} (${funding.mock ? "simulated PayPal" : "sandbox"})`, kind: "ok" } });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "funding failed", kind: "error" } });
+    } finally {
+      set({ busy: null });
+    }
+  },
+
+  setTab: (tab) => set({ tab }),
+
+  pushEvent: (event) =>
+    set((state) => ({ events: [...state.events, event].slice(-MAX_EVENTS) })),
+
+  setEvents: (events) => set({ events: events.slice(-MAX_EVENTS) }),
+
+  notify: (text, kind = "ok") => set({ toast: { text, kind } }),
+
+  clearToast: () => set({ toast: null }),
+}));

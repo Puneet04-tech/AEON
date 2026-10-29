@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import agents, approvals, control, events, forecasts, funding, ledger, loans
+from app.api import agents, approvals, audit, control, events, forecasts, funding, ledger, loans
 from app.api import scenarios as scenarios_api
 from app.api import session as session_api
 from app.api import settlement as settlement_api
@@ -146,6 +146,7 @@ app.include_router(ledger.router)
 app.include_router(funding.router)
 app.include_router(settlement_api.router)
 app.include_router(approvals.router)
+app.include_router(audit.router)
 app.include_router(control.router)
 app.include_router(scenarios_api.router)
 app.include_router(forecasts.router)

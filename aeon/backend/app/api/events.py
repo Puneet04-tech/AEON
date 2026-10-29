@@ -25,9 +25,9 @@ async def recent_events(since: int = 0, limit: int = 200,
 async def stream(request: Request, token: Optional[str] = Query(default=None),
                  since: int = 0):
     """SSE stream. Authenticate with the Authorization header or ?token=."""
-    from app.security.sessions import current_session
+    from app.security.sessions import session_from_request
 
-    await current_session(request)  # raises 401 when unauthenticated
+    await session_from_request(request, token or "")  # raises 401 when unauthenticated
     db = get_database()
 
     async def generator():

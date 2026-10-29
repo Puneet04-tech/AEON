@@ -45,9 +45,9 @@ async def mutate(request: Request, payload: dict,
 
 
 async def optional_session(request: Request) -> Optional[object]:
-    from app.security.sessions import current_session
+    from app.security.sessions import session_from_request
 
     try:
-        return await current_session(request)
+        return await session_from_request(request)
     except HTTPException:
         return None

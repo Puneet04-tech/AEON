@@ -21,6 +21,15 @@ async def connect_to_mongo() -> None:
     global _client, _db
     if _db is not None:
         return
+    if settings.MONGODB_URI.startswith("memory://"):
+        # Explicit local demo mode: process-local, non-persistent database.
+        from mongomock_motor import AsyncMongoMockClient
+
+        _client = AsyncMongoMockClient()
+        _db = _client[settings.MONGODB_DB]
+        logger.warning("mongo_in_memory_mode", db=settings.MONGODB_DB,
+                       note="data is lost on restart; use a real MongoDB for anything durable")
+        return
     _client = AsyncIOMotorClient(settings.MONGODB_URI, serverSelectionTimeoutMS=5000)
     _db = _client[settings.MONGODB_DB]
     logger.info("mongo_connected", db=settings.MONGODB_DB)
