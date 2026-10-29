@@ -233,6 +233,15 @@ export const api = {
   resume: (agentId: string) => request(`/api/v1/agents/${agentId}/resume`, { method: "POST", body: "{}" }, true),
   workers: () => request<{ workers: any[] }>("/api/v1/workers/health"),
   recentEvents: (since = 0) => request<{ events: StreamEvent[] }>(`/api/v1/events/recent?since=${since}`),
+  treasurerPlan: () =>
+    request<{
+      totals: { items: number; amount_micro: number };
+      treasury_float_micro: number;
+      positions: { agent_id: string; amount_micro: number }[];
+      treasurer: { recommend: boolean; note: string; llm: { source: string; model: string }; guardrail?: { passed: boolean; failed: string[] } };
+    }>("/api/v1/treasurer/plan"),
+  mcpTools: () => request<{ tools: { name: string; description: string }[] }>("/api/v1/mcp/tools"),
+  resetDemo: () => request("/api/v1/demo/reset", { method: "POST", body: "{}" }, true),
 };
 
 export function streamUrl(): string {

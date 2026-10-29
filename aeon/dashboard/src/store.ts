@@ -43,6 +43,8 @@ interface ConsoleState {
   decide: (id: string, decision: "APPROVED" | "REJECTED") => Promise<void>;
   toggleAgent: (agent: Agent) => Promise<void>;
   fund: (agentId: string, amountMicro: number) => Promise<void>;
+  showTreasurer: () => Promise<void>;
+  resetDemo: () => Promise<void>;
   setTab: (tab: Tab) => void;
   pushEvent: (event: StreamEvent) => void;
   setEvents: (events: StreamEvent[]) => void;
@@ -243,6 +245,36 @@ export const useConsole = create<ConsoleState>((set, get) => ({
       await get().refresh();
     } catch (error) {
       set({ toast: { text: error instanceof Error ? error.message : "funding failed", kind: "error" } });
+    } finally {
+      set({ busy: null });
+    }
+  },
+
+  showTreasurer: async () => {
+    try {
+      const plan = await api.treasurerPlan();
+      const verdict = plan.treasurer.guardrail?.passed === false
+        ? `guardrail: ${plan.treasurer.guardrail.failed.join(", ")}`
+        : "guardrail ok";
+      set({
+        toast: {
+          text: `Treasurer (${plan.treasurer.llm.source}): ${plan.treasurer.note} — ${plan.totals.items} item(s), ${plan.totals.amount_micro} µUSD payable, ${verdict}`,
+          kind: plan.treasurer.recommend ? "ok" : "error",
+        },
+      });
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "treasurer unavailable", kind: "error" } });
+    }
+  },
+
+  resetDemo: async () => {
+    set({ busy: "Resetting demo…" });
+    try {
+      await api.resetDemo();
+      set({ toast: { text: "Demo reset: five agents reseeded", kind: "ok" }, selectedTradeId: null, transcript: [] });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "reset failed", kind: "error" } });
     } finally {
       set({ busy: null });
     }

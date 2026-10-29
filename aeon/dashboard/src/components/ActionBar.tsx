@@ -4,6 +4,7 @@ import { useConsole } from "../store";
 export default function ActionBar() {
   const {
     agents, role, runTrade, runSettlement, runScenario, fund, busy, workers, status,
+    showTreasurer, resetDemo,
   } = useConsole();
   const [buyer, setBuyer] = useState("");
   const [seller, setSeller] = useState("");
@@ -59,6 +60,14 @@ export default function ActionBar() {
       <button disabled={!!busy || !operator} onClick={runSettlement}
               title={operator ? "Net balances and send a PayPal payout batch" : "Operator only"}>
         Settle
+      </button>
+
+      <button disabled={!!busy} onClick={showTreasurer} title="Treasurer agent's settlement proposal (LLM + guardrails)">
+        Treasurer
+      </button>
+      <button disabled={!!busy || !operator} onClick={resetDemo}
+              title={operator ? "Wipe trades and reseed the demo agents" : "Operator only"}>
+        Reset
       </button>
 
       <span className="divider" />

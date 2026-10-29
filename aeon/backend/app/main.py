@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import agents, approvals, audit, control, events, forecasts, funding, ledger, loans
+from app.api import agents, approvals, audit, control, demo, events, forecasts, funding, ledger, loans, mcp
 from app.api import scenarios as scenarios_api
 from app.api import session as session_api
 from app.api import settlement as settlement_api
@@ -117,6 +117,10 @@ async def security_and_limits(request: Request, call_next):
             except InputRejected as exc:
                 return JSONResponse({"detail": str(exc)}, status_code=400)
             except ValueError:
+                if request.url.path == "/mcp":
+                    return JSONResponse({"jsonrpc": "2.0", "id": None,
+                                         "error": {"code": -32700, "message": "parse error"}},
+                                        status_code=400)
                 return JSONResponse({"detail": "invalid JSON"}, status_code=400)
             request._body = raw  # type: ignore[attr-defined]
 
@@ -147,6 +151,8 @@ app.include_router(funding.router)
 app.include_router(settlement_api.router)
 app.include_router(approvals.router)
 app.include_router(audit.router)
+app.include_router(mcp.router)
+app.include_router(demo.router)
 app.include_router(control.router)
 app.include_router(scenarios_api.router)
 app.include_router(forecasts.router)

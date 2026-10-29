@@ -76,9 +76,10 @@ async def seed(db, reset: bool = False) -> dict:
     ledger = LedgerService(db)
     if reset:
         for collection in ("agents", "trades", "jobs", "negotiations", "journal", "ledger_entries",
-                           "wallets", "account_totals", "funding_requests", "settlements",
-                           "payout_items", "approvals", "loans", "reservations", "scenario_runs",
-                           "events", "audit_log", "idempotency_keys", "forecasts", "kv"):
+                           "ledger_txns", "wallets", "account_totals", "funding_requests",
+                           "settlements", "payout_items", "approvals", "loans", "reservations",
+                           "scenario_runs", "events", "webhook_events", "audit_log",
+                           "idempotency_keys", "forecasts", "kv"):
             await db[collection].delete_many({})
 
     # Opening balances are booked against treasury_float, which therefore carries

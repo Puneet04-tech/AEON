@@ -86,9 +86,30 @@ Funds move to `payout_in_flight` before the API call, then either complete or re
 mid-batch leaves an auditable in-flight position instead of silent loss, and `settlement/batches/{id}/reconcile`
 is safe to retry because each item's ledger operations are idempotent.
 
+**16. MCP tools read and propose; they never move money.**
+`POST /mcp` speaks JSON-RPC 2.0 and exposes orders, transactions, balances and a
+`aeon_propose_payout_batch` tool. The proposal is a recommendation that lands in the normal
+approval + guardrail path; no tool can call PayPal Payouts directly. *Impact:* an MCP host (a PayPal
+Agent Toolkit client, a chat assistant, a judge's own script) can inspect the treasury and get a
+justified batch proposal without becoming a privileged money mover. Only listing and proposing are
+exposed, so a leaked tool surface cannot drain the treasury.
+
+**17. Demo reset clears idempotency keys too.**
+The reset endpoint empties the ledger, trades, approvals and `idempotency_keys` together. Without the
+last one a reseed replays the original funding request IDs, the server correctly answers "already
+processed", and the demo comes back with empty wallets. *Impact:* the reset button is genuinely
+repeatable, which is what a live judge run needs.
+
+**18. Post-deployment checks are a script, not a checklist.**
+`scripts/smoke.py` exercises S1-S3, an MCP tool call, funding order plus capture, settlement and the
+ledger invariant against any base URL, and reports which adapters are still simulated. *Impact:* after
+credentials are added the verification is one command with a real exit code, and any regression shows
+up as a named failed check instead of a vague "looks fine".
+
 ## Deferred deliberately
 
 - The natural-language operator command bar, PayPal Invoicing and the Bryntum timeline are
   stretch goals and are not implemented.
 - Trades run synchronously on the request; a queue is the obvious next step.
-- APIMatic SDK generation and Playwright smoke tests are left for the polish window.
+- APIMatic SDK generation and Playwright browser tests are left for the polish window;
+  `scripts/smoke.py` covers the API-level end-to-end path instead.

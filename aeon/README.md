@@ -89,10 +89,22 @@ npm install && npm run dev    # http://localhost:5173, proxies /api to :8000
 ### Tests
 
 ```bash
-cd backend && python -m pytest -q     # 69 tests
+cd backend && python -m pytest -q     # 87 tests
 cd worker  && python -m pytest -q     # 11 tests
 cd dashboard && npx tsc --noEmit && npm run build
 ```
+
+### Post-deployment smoke test
+
+Once credentials are in place, verify the real paths against a running instance:
+
+```bash
+python scripts/smoke.py --base-url https://your-api.onrender.com --password "$OPERATOR_PASSWORD"
+```
+
+It runs S1-S3, an MCP tool call, a real funding order and capture, a settlement batch and the
+invariant, then flags anything still running on a simulated adapter (`mock` PayPal, fallback
+pricing). Exit code 0 means every check passed.
 
 ## Demo script (three minutes)
 
@@ -153,6 +165,9 @@ Key properties, enforced in code and tests:
 | `GET /api/v1/forecasts`, `/reservations`, `POST /reservations` | Forecast capacity | viewer / judge |
 | `GET/POST /api/v1/loans` | Credit lines | viewer / judge |
 | `POST /api/v1/control/kill-switch`, `/workers/{id}/chaos` | Emergency controls | operator |
+| `POST /mcp` | MCP JSON-RPC: initialize, tools/list, tools/call | viewer |
+| `GET /api/v1/treasurer/plan`, `/payments/overview` | Treasurer proposal and PayPal read model | viewer |
+| `POST /api/v1/demo/reset` | Wipe trades and reseed demo agents | operator |
 | `GET /api/v1/events/stream` | SSE event stream (replayable) | viewer |
 | `POST /webhooks/paypal` | PayPal events (signature verified) | signature |
 | `GET /healthz`, `/metrics` | Health and metrics | public |
@@ -162,7 +177,10 @@ OpenAPI: `/docs`. Postman collection: `postman/aeon.collection.json`.
 ## Tools used
 
 - **PayPal** — Orders v2 (funding), Payouts v1 (settlement), webhook signature verification,
-  reconciliation by webhook plus polling, Agent Toolkit/MCP reading as the documented optional path.
+  reconciliation by webhook plus polling, and an **MCP server** (`POST /mcp`, JSON-RPC 2.0) whose
+  treasurer tools read orders, transactions and balances and *propose* a payout batch. The same shape
+  is what a PayPal Agent Toolkit host connects to; every tool is read-only or proposing, so no MCP
+  client can move money without the guardrail and approval path.
 - **Cloudflare Workers AI** — negotiation moves and credit decisions, cached for replay.
 - **MongoDB** — double-entry ledger, JSON-schema validators, TTL collections, unique idempotency keys.
 - **React + AG Grid + React Flow**, **FastAPI**, **Render** (`render.yaml`).
