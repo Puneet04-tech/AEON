@@ -1,119 +1,180 @@
+"""AEON API application.
+
+FastAPI app with security middleware, all routers and static dashboard serving.
 """
-AEON FastAPI Application Main Entry Point
-
-Core application setup, middleware, and route registration.
-Follows the AEON 7-day blueprint architecture.
-"""
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-from app.settings import settings
-from app.security import (
-    generate_session_token,
-    verify_session_token,
-    validate_role,
-    validate_actor_for_resource,
-    default_limiter,
-)
-from app.db.client import connect_to_mongo, close_mongo_connection, get_database
-from app.db.indexes import create_indexes
-
-from app.api.agents import router as api_agents
-from app.api.trades import router as api_trades
-from app.api.approvals import router as api_approvals
-from app.api.funding import router as api_funding
+import time
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
 
 import structlog
-import time
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+from app.api import agents, approvals, control, events, forecasts, funding, ledger, loans
+from app.api import scenarios as scenarios_api
+from app.api import session as session_api
+from app.api import settlement as settlement_api
+from app.api import system, trades as trades_api, webhooks
+from app.db.client import close_mongo_connection, connect_to_mongo, get_database
+from app.db.indexes import create_indexes
+from app.db.validators import apply_validators
+from app.security.input_guard import InputRejected, reject_unsafe_keys
+from app.security.rate_limit import SlidingWindowLimiter, client_key
+from app.settings import settings
+from app.api.system import count_request
+
+structlog.configure(
+    processors=[
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
+        structlog.processors.JSONRenderer(),
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(20),
+)
 logger = structlog.get_logger()
 
-# Configure rate limiter
-limiter = default_limiter
-
-app = FastAPI(
-    title="AEON API",
-    description="Agent-to-Agent Settlement Network for Shared Compute",
-    version="0.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
-
-# CORS - allow frontend origin
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.ALLOWED_ORIGIN, "http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include API routers
-app.include_router(api_agents)
-app.include_router(api_trades)
-app.include_router(api_approvals)
-app.include_router(api_funding)
+rate_limiter = SlidingWindowLimiter(settings.RATE_LIMIT_WINDOW, settings.RATE_LIMIT_MAX)
 
 
-# Rate limiting middleware
-@app.middleware("http")
-async def add_rate_limit_headers(request: Request, call_next):
-    """Add rate limit information to response headers."""
-    try:
-        limit_info = limiter.check(request)
-    except Exception:
-        limit_info = {"limit": "100", "remaining": "100", "reset": ""}
-
-    response = await call_next(request)
-    if hasattr(limit_info, 'remaining'):
-        response.headers["X-Rate-Limit-Limit"] = str(limit_info.limit)
-        response.headers["X-Rate-Limit-Remaining"] = str(limit_info.remaining)
-    return response
-
-
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    """Add process time header to responses."""
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
-
-
-@app.on_event("startup")
-async def startup_db_client():
-    """Database connection startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings.assert_production_safe()
     await connect_to_mongo()
-    # Create indexes after connection
     db = get_database()
     await create_indexes(db)
-    logger.info("AEON API started", version="0.1.0")
+    await apply_validators(db)
+    if settings.AUTO_SEED and await db.agents.count_documents({}) == 0:
+        from app.db.seed import seed
 
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    """Database connection shutdown."""
+        await seed(db)
+        logger.info("demo_seed_applied")
+    logger.info("aeon_api_started", version=settings.APP_VERSION,
+                paypal_mode=settings.paypal_effective_mode, llm_mode=settings.LLM_MODE)
+    yield
     await close_mongo_connection()
-    logger.info("AEON API shutting down")
+    logger.info("aeon_api_stopped")
 
 
-@app.get("/healthz")
-async def healthz(request: Request):
-    """Health check endpoint."""
-    db = get_database()
-    return {"status": "ok", "service": "aeon-api", "version": "0.1.0"}
+app = FastAPI(
+    title="AEON - Agent-to-Agent Settlement Network",
+    description="Clearing house for AI agents that trade compute and settle through PayPal sandbox.",
+    version=settings.APP_VERSION,
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-Id"],
+    expose_headers=["X-Request-Id", "X-RateLimit-Remaining"],
+)
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+@app.middleware("http")
+async def security_and_limits(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+    started = time.perf_counter()
+
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > 1024 * 1024:
+            return JSONResponse({"detail": "payload too large"}, status_code=413)
+        content_type = request.headers.get("content-type", "")
+        if content_type.startswith("application/json"):
+            raw = await request.body()
+            try:
+                import json
+
+                reject_unsafe_keys(json.loads(raw or b"{}"))
+            except InputRejected as exc:
+                return JSONResponse({"detail": str(exc)}, status_code=400)
+            except ValueError:
+                return JSONResponse({"detail": "invalid JSON"}, status_code=400)
+            request._body = raw  # type: ignore[attr-defined]
+
+    allowed, remaining, _ = rate_limiter.hit(client_key(request))
+    if not allowed and request.url.path not in {"/healthz", "/metrics"}:
+        return JSONResponse({"detail": "rate limit exceeded"}, status_code=429,
+                            headers={"Retry-After": str(settings.RATE_LIMIT_WINDOW)})
+
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers[header] = value
+    response.headers["Content-Security-Policy"] = CSP
+    response.headers["X-Request-Id"] = request_id
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
+    response.headers["X-Process-Time"] = f"{time.perf_counter() - started:.4f}"
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    count_request(error=response.status_code >= 500)
+    return response
+
+
+app.include_router(system.router)
+app.include_router(session_api.router)
+app.include_router(agents.router)
+app.include_router(trades_api.router)
+app.include_router(ledger.router)
+app.include_router(funding.router)
+app.include_router(settlement_api.router)
+app.include_router(approvals.router)
+app.include_router(control.router)
+app.include_router(scenarios_api.router)
+app.include_router(forecasts.router)
+app.include_router(loans.router)
+app.include_router(events.router)
+app.include_router(webhooks.router)
+
+
+@app.exception_handler(InputRejected)
+async def input_rejected_handler(request: Request, exc: InputRejected):
+    return JSONResponse({"detail": str(exc)}, status_code=400)
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    return JSONResponse({"detail": str(exc)}, status_code=400)
+
+
+DASHBOARD_DIR = Path(__file__).resolve().parents[2] / settings.DASHBOARD_DIR
+if DASHBOARD_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="dashboard")
 
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
     return {
-        "service": "AEON API",
-        "version": "0.1.0",
+        "service": "AEON",
+        "version": settings.APP_VERSION,
         "docs": "/docs",
-        "health": "/healthz"
+        "health": "/healthz",
+        "dashboard": "/" if DASHBOARD_DIR.exists() else "run the dashboard dev server on :5173",
     }
