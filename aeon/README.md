@@ -89,7 +89,7 @@ npm install && npm run dev    # http://localhost:5173, proxies /api to :8000
 ### Tests
 
 ```bash
-cd backend && python -m pytest -q     # 58 tests
+cd backend && python -m pytest -q     # 69 tests
 cd worker  && python -m pytest -q     # 11 tests
 cd dashboard && npx tsc --noEmit && npm run build
 ```
