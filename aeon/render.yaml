@@ -43,9 +43,29 @@ services:
       - key: WORKER_URLS
         value: https://aeon-worker-atlas.onrender.com,https://aeon-worker-boreal.onrender.com
       - key: ALLOWED_ORIGIN
-        value: https://aeon-api.onrender.com
+        value: https://aeon-console.onrender.com
+      - key: PAYPAL_RETURN_URL
+        value: https://aeon-console.onrender.com/?funding=return
+      - key: PAYPAL_CANCEL_URL
+        value: https://aeon-console.onrender.com/?funding=cancel
       - key: AUTO_SEED
         value: "true"
+
+  # The console is a static build that talks to the API across origins, so it lives
+  # outside the API service and needs no server of its own.
+  - type: web
+    name: aeon-console
+    runtime: static
+    rootDir: dashboard
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE
+        value: https://aeon-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
 
   - type: web
     name: aeon-worker-atlas

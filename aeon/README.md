@@ -187,9 +187,13 @@ OpenAPI: `/docs`. Postman collection: `postman/aeon.collection.json`.
 
 ## Deployment
 
-`render.yaml` defines the API and two workers; add the secrets in the Render dashboard. The ledger is
-the source of truth, so a worker restart never loses money state. `docker compose up` runs the whole
-stack locally.
+`render.yaml` defines the API, two workers and a static console build; add the secrets in the Render
+dashboard. The ledger is the source of truth, so a worker restart never loses money state.
+`docker compose up` runs the whole stack locally.
+
+**[`docs/CREDENTIALS.md`](docs/CREDENTIALS.md)** is the full runbook: every key, where to get it, the
+order to set them, and a failure playbook. **[`docs/SUBMISSION.md`](docs/SUBMISSION.md)** holds the
+paste-ready write-up, the demo-video shot list and the judge test path.
 
 ## Limitations and honest scope
 

@@ -125,6 +125,12 @@ export interface StreamEvent {
 
 const TOKEN_KEY = "aeon.token";
 
+/**
+ * Empty when the console is served by the API (same origin, the default).
+ * Set VITE_API_BASE to the API origin when hosting the console separately.
+ */
+export const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -151,7 +157,7 @@ async function request<T>(path: string, init: RequestInit = {}, idempotent = fal
   if (idempotent) {
     headers.set("Idempotency-Key", crypto.randomUUID().replace(/-/g, ""));
   }
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const text = await response.text();
   const body = text ? JSON.parse(text) : {};
   if (!response.ok) {
@@ -246,7 +252,7 @@ export const api = {
 
 export function streamUrl(): string {
   const token = getToken() ?? "";
-  return `/api/v1/events/stream?token=${encodeURIComponent(token)}`;
+  return `${API_BASE}/api/v1/events/stream?token=${encodeURIComponent(token)}`;
 }
 
 /** micro-USD -> display string. Money is never computed in floats. */
