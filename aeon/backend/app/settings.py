@@ -33,7 +33,14 @@ class Settings(BaseSettings):
     PAYPAL_MODE: Literal["sandbox", "mock"] = "sandbox"
     PAYPAL_RETURN_URL: str = "http://localhost:5173/?funding=return"
     PAYPAL_CANCEL_URL: str = "http://localhost:5173/?funding=cancel"
+    # The merchant profile here is country IN, which PayPal only allows to
+    # receive USD (INR orders are rejected 422 CURRENCY_NOT_SUPPORTED). Keep the
+    # order currency USD; the payer account must also be a USD-capable sandbox
+    # account, otherwise checkout fails with "currency is not valid".
     PAYPAL_CURRENCY: str = "USD"
+    # Only used when PAYPAL_CURRENCY is switched to a non-USD code. AEON books
+    # everything in micro-USD, so amounts are converted at this rate out and back.
+    PAYPAL_USD_TO_INR: float = 83.0
     PAYPAL_SENDER_BATCH_ID_PREFIX: str = "AEON"
 
     # Treasury / settlement limits, micro-USD

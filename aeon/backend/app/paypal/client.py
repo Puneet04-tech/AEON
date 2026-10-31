@@ -29,14 +29,27 @@ class PayPalError(Exception):
         self.details = details
 
 
-def micro_to_decimal(amount_micro: int) -> str:
-    """micro-USD -> a PayPal amount string with exactly two decimals."""
-    value = (Decimal(amount_micro) / Decimal(1_000_000)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+def micro_to_decimal(amount_micro: int, currency: str = "USD") -> str:
+    """micro-USD -> the amount string PayPal expects, in the order's currency.
+
+    AEON keeps every balance in micro-USD. PayPal wants a bare decimal with no
+    currency symbol, expressed in the order's own currency, so when the order
+    currency is INR the value is converted at PAYPAL_USD_TO_INR (a $5.00 top-up
+    becomes 415.00 INR).
+    """
+    value = Decimal(amount_micro) / Decimal(1_000_000)
+    if currency.upper() == "INR":
+        value = value * Decimal(str(settings.PAYPAL_USD_TO_INR))
+    value = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return f"{value:.2f}"
 
 
-def to_micro(amount: str) -> int:
-    return int((Decimal(str(amount)) * Decimal(1_000_000)).to_integral_value(rounding=ROUND_HALF_UP))
+def to_micro(amount: str, currency: str = "USD") -> int:
+    """PayPal amount string -> micro-USD, reversing the currency conversion."""
+    value = Decimal(str(amount).replace("₹", "").replace("$", "").strip())
+    if currency.upper() == "INR":
+        value = value / Decimal(str(settings.PAYPAL_USD_TO_INR))
+    return int((value * Decimal(1_000_000)).to_integral_value(rounding=ROUND_HALF_UP))
 
 
 class PayPalClient:

@@ -25,7 +25,8 @@ async def create_payout(client: PayPalClient, sender_batch_id: str, items: List[
                 "batch_status": "SUCCESS",
                 "sender_batch_id": sender_batch_id,
                 "time_created": datetime.now(timezone.utc).isoformat(),
-                "amount": {"value": micro_to_decimal(sum(i["amount_micro"] for i in items)),
+                "amount": {"value": micro_to_decimal(sum(i["amount_micro"] for i in items),
+                                                   settings.PAYPAL_CURRENCY),
                            "currency": settings.PAYPAL_CURRENCY},
             },
             "items": [
@@ -33,7 +34,8 @@ async def create_payout(client: PayPalClient, sender_batch_id: str, items: List[
                  "payout_item_id": client.mock_id("ITEM"),
                  "transaction_status": "SUCCESS",
                  "payout_item": {"receiver": item["receiver_email"],
-                                 "amount": {"value": micro_to_decimal(item["amount_micro"]),
+                                 "amount": {"value": micro_to_decimal(item["amount_micro"],
+                                                                    settings.PAYPAL_CURRENCY),
                                             "currency": settings.PAYPAL_CURRENCY},
                                  "note": item.get("note", "")}}
                 for item in items
@@ -51,7 +53,7 @@ async def create_payout(client: PayPalClient, sender_batch_id: str, items: List[
         },
         "items": [{
             "recipient_type": "EMAIL",
-            "amount": {"value": micro_to_decimal(item["amount_micro"]),
+            "amount": {"value": micro_to_decimal(item["amount_micro"], settings.PAYPAL_CURRENCY),
                        "currency": settings.PAYPAL_CURRENCY},
             "receiver": item["receiver_email"],
             "note": item.get("note", "AEON settlement")[:127],
@@ -80,7 +82,7 @@ def normalize_items(payload: dict) -> List[dict]:
             "sender_item_id": item.get("sender_item_id") or (item.get("payout_item_id", "")),
             "payout_item_id": item.get("payout_item_id", ""),
             "status": (item.get("transaction_status") or "").upper(),
-            "amount_micro": to_micro(amount),
+            "amount_micro": to_micro(amount, settings.PAYPAL_CURRENCY),
             "receiver": payout_item.get("receiver", ""),
             "error": item.get("errors"),
         })
