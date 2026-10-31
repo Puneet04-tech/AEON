@@ -86,8 +86,24 @@ class PayPalClient:
         except httpx.HTTPError as exc:
             raise PayPalError(f"network error talking to PayPal: {exc}", code="network")
         if response.status_code >= 400:
-            raise PayPalError(f"PayPal returned {response.status_code} for {method} {path}",
-                              status=502, code="http_error", details=response.text[:500])
+            # Surface PayPal's own error name (e.g. PAYOUT_NOT_AVAILABLE,
+            # ORDER_NOT_APPROVED) so operators see the real cause instead of a
+            # generic upstream failure.
+            name, detail = "http_error", ""
+            try:
+                body = response.json()
+                name = body.get("name") or name
+                detail = body.get("message") or body.get("error_description") or ""
+                issues = [d.get("issue") for d in (body.get("details") or []) if d.get("issue")]
+                if issues:
+                    name = issues[0]
+                    detail = detail or ""
+            except ValueError:
+                detail = response.text[:300]
+            message = f"PayPal {response.status_code} {name} for {method} {path}"
+            if detail:
+                message += f": {detail}"
+            raise PayPalError(message, status=502, code=name, details=response.text[:500])
         if not response.content:
             return {}
         return response.json()

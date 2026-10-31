@@ -66,7 +66,9 @@ VALIDATORS: Dict[str, Dict[str, Any]] = {
                     "bsonType": "object",
                     "required": ["price_micro", "quantity"],
                     "properties": {
-                        "price_micro": {"bsonType": ["int", "long"], "minimum": 1},
+                        # 0 encodes "no agreed price yet" on a proposed trade; it
+                        # becomes >= 1 once negotiation settles.
+                        "price_micro": {"bsonType": ["int", "long"], "minimum": 0},
                         "quantity": {"bsonType": ["int", "long"], "minimum": 1},
                     },
                 },

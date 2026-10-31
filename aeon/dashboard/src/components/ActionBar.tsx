@@ -4,7 +4,7 @@ import { useConsole } from "../store";
 export default function ActionBar() {
   const {
     agents, role, runTrade, runSettlement, runScenario, fund, busy, workers, status,
-    showTreasurer, resetDemo,
+    showTreasurer, resetDemo, pendingFunding, capturePendingFunding,
   } = useConsole();
   const [buyer, setBuyer] = useState("");
   const [seller, setSeller] = useState("");
@@ -88,6 +88,13 @@ export default function ActionBar() {
               }}>
         Fund
       </button>
+      {pendingFunding && (
+        <button className="primary" disabled={!!busy || !operator}
+                title="Capture the PayPal order you approved in the PayPal tab"
+                onClick={capturePendingFunding}>
+          Capture PayPal
+        </button>
+      )}
 
       <span className="spacer" />
       <span className={`pill ${healthyWorkers ? "ok" : "bad"}`}>

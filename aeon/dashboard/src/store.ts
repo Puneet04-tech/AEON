@@ -29,6 +29,7 @@ interface ConsoleState {
   tab: Tab;
   busy: string | null;
   toast: { text: string; kind: "ok" | "error" } | null;
+  pendingFunding: { id: string; agentId: string } | null;
 
   bootstrap: () => Promise<void>;
   login: (password: string) => Promise<void>;
@@ -43,6 +44,7 @@ interface ConsoleState {
   decide: (id: string, decision: "APPROVED" | "REJECTED") => Promise<void>;
   toggleAgent: (agent: Agent) => Promise<void>;
   fund: (agentId: string, amountMicro: number) => Promise<void>;
+  capturePendingFunding: () => Promise<void>;
   showTreasurer: () => Promise<void>;
   resetDemo: () => Promise<void>;
   setTab: (tab: Tab) => void;
@@ -76,6 +78,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
   tab: "trades",
   busy: null,
   toast: null,
+  pendingFunding: null,
 
   bootstrap: async () => {
     try {
@@ -92,6 +95,13 @@ export const useConsole = create<ConsoleState>((set, get) => ({
       }
       const recent = await api.recentEvents(0).catch(() => ({ events: [] }));
       set({ events: recent.events.slice(-MAX_EVENTS) });
+
+      // A funding order awaiting buyer approval survives the PayPal round trip.
+      const pending = localStorage.getItem("aeon.pendingFunding");
+      if (pending) set({ pendingFunding: { id: pending, agentId: "" } });
+      if (pending && new URLSearchParams(window.location.search).get("funding") === "return") {
+        await get().capturePendingFunding();
+      }
     } catch {
       set({ booted: true });
     }
@@ -240,11 +250,41 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     set({ busy: "Creating PayPal order…" });
     try {
       const funding = await api.createFunding(agentId, amountMicro);
+      // Mock orders are captured inline. A real sandbox order must be approved
+      // by the payer first, so open PayPal and remember it for the return leg.
+      if (!funding.mock && funding.approve_url) {
+        localStorage.setItem("aeon.pendingFunding", funding.id);
+        set({
+          pendingFunding: { id: funding.id, agentId },
+          toast: { text: "PayPal order created — approve it in the PayPal tab, then click Capture.", kind: "ok" },
+        });
+        window.open(funding.approve_url, "aeon-paypal", "noopener,noreferrer");
+        return;
+      }
       await api.captureFunding(funding.id);
       set({ toast: { text: `Funded ${agentId} (${funding.mock ? "simulated PayPal" : "sandbox"})`, kind: "ok" } });
       await get().refresh();
     } catch (error) {
       set({ toast: { text: error instanceof Error ? error.message : "funding failed", kind: "error" } });
+    } finally {
+      set({ busy: null });
+    }
+  },
+
+  capturePendingFunding: async () => {
+    const id = get().pendingFunding?.id || localStorage.getItem("aeon.pendingFunding");
+    if (!id) return;
+    set({ busy: "Capturing PayPal order…" });
+    try {
+      const funding = await api.captureFunding(id);
+      localStorage.removeItem("aeon.pendingFunding");
+      set({
+        pendingFunding: null,
+        toast: { text: `Captured ${funding.amount_micro} µUSD for ${funding.agent_id}`, kind: "ok" },
+      });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "capture failed", kind: "error" } });
     } finally {
       set({ busy: null });
     }
