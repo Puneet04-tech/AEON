@@ -56,6 +56,14 @@ interface ConsoleState {
 
 const MAX_EVENTS = 300;
 
+// SSE replay on reconnect can resend events the client already has, so merge by
+// id instead of appending blindly.
+function mergeEvents(existing: StreamEvent[], incoming: StreamEvent[]): StreamEvent[] {
+  const byId = new Map<string, StreamEvent>();
+  for (const event of [...existing, ...incoming]) byId.set(event.id, event);
+  return [...byId.values()].sort((a, b) => a.seq - b.seq).slice(-MAX_EVENTS);
+}
+
 export const useConsole = create<ConsoleState>((set, get) => ({
   booted: false,
   config: null,
@@ -323,9 +331,9 @@ export const useConsole = create<ConsoleState>((set, get) => ({
   setTab: (tab) => set({ tab }),
 
   pushEvent: (event) =>
-    set((state) => ({ events: [...state.events, event].slice(-MAX_EVENTS) })),
+    set((state) => ({ events: mergeEvents(state.events, [event]) })),
 
-  setEvents: (events) => set({ events: events.slice(-MAX_EVENTS) }),
+  setEvents: (events) => set({ events: mergeEvents([], events) }),
 
   notify: (text, kind = "ok") => set({ toast: { text, kind } }),
 

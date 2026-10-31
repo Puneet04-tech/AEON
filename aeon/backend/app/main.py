@@ -124,10 +124,18 @@ async def security_and_limits(request: Request, call_next):
                 return JSONResponse({"detail": "invalid JSON"}, status_code=400)
             request._body = raw  # type: ignore[attr-defined]
 
-    allowed, remaining, _ = rate_limiter.hit(client_key(request))
-    if not allowed and request.url.path not in {"/healthz", "/metrics"}:
-        return JSONResponse({"detail": "rate limit exceeded"}, status_code=429,
-                            headers={"Retry-After": str(settings.RATE_LIMIT_WINDOW)})
+    # Only API traffic is limited. Static assets and the SSE stream are not:
+    # a 429 on the stream makes EventSource retry every few seconds, which would
+    # feed the limiter and lock a browser out of the console after a refresh.
+    path = request.url.path
+    limited = path.startswith("/api/") and path != "/api/v1/events/stream"
+    if limited:
+        allowed, remaining, _ = rate_limiter.hit(client_key(request))
+        if not allowed:
+            return JSONResponse({"detail": "rate limit exceeded"}, status_code=429,
+                                headers={"Retry-After": str(settings.RATE_LIMIT_WINDOW)})
+    else:
+        remaining = settings.RATE_LIMIT_MAX
 
     response = await call_next(request)
     for header, value in SECURITY_HEADERS.items():
