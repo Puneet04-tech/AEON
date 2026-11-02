@@ -86,6 +86,8 @@ INDEXES = [
     ("users_sessions", [("jti", ASCENDING)], {"unique": True}),
     ("users_sessions", [("expires_at", ASCENDING)], {"expireAfterSeconds": 0}),
 
+    ("users_accounts", [("email", ASCENDING)], {"unique": True}),
+
     ("kv", [("key", ASCENDING)], {"unique": True}),
 ]
 

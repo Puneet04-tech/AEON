@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import type { ColDef } from "ag-grid-community";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 import { useConsole, type Tab } from "../store";
 import { formatMoney, formatTime } from "../api";
+import ApprovalPanel from "./ApprovalPanel";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "trades", label: "Trades" },
@@ -26,6 +27,7 @@ const moneyCol = (headerName: string, width: number, valueGetter: (p: any) => nu
 export default function DataConsole() {
   const state = useConsole();
   const { tab, setTab, selectTrade, decide, toggleAgent, trades, entries, payouts, agents, approvals, audit } = state;
+  const [selectedApproval, setSelectedApproval] = useState<any>(null);
 
   const columnDefs = useMemo<Record<Tab, ColDef[]>>(() => ({
     trades: [
@@ -96,47 +98,47 @@ export default function DataConsole() {
   }, [tab, trades, entries, payouts, agents, approvals, audit]);
 
   return (
-    <section className="console-panel">
-      <nav className="tabs">
-        {TABS.map((item) => (
-          <button key={item.id} className={`tab ${tab === item.id ? "active" : ""}`}
-                  onClick={() => setTab(item.id)}>
-            {item.label}
-          </button>
-        ))}
-      </nav>
-      <div className="grid-wrap ag-theme-quartz">
-        {rowData.length === 0 ? (
-          <div className="empty">
-            {tab === "trades" ? "No trades yet — press Run trade to start one." : `No ${tab} rows yet.`}
-          </div>
-        ) : (
-          <AgGridReact
-            rowData={rowData as any[]}
-            columnDefs={columnDefs[tab]}
-            defaultColDef={{ sortable: true, resizable: true, suppressHeaderMenuButton: true }}
-            getRowId={(params) => params.data.id ?? params.data.txn_id ?? params.data.event_id ?? Math.random().toString(36)}
-            rowSelection="single"
-            suppressCellFocus
-            onRowClicked={(event) => {
-              if (tab === "trades") selectTrade(event.data.id);
-            }}
-            onCellClicked={(event) => {
-              if (tab === "agents" && event.colDef.colId === "toggle_agent") {
-                toggleAgent(event.data);
-              }
-              if (tab === "approvals" && event.colDef.colId === "decide" && event.data.state === "PENDING") {
-                decide(event.data.id, "APPROVED");
-              }
-            }}
-            onCellDoubleClicked={(event) => {
-              if (tab === "approvals" && event.data.state === "PENDING") {
-                decide(event.data.id, "REJECTED");
-              }
-            }}
-          />
-        )}
-      </div>
-    </section>
+    <>
+      <section className="data-grid-tabs-pane">
+        <nav className="tabs">
+          {TABS.map((item) => (
+            <button key={item.id} className={`tab ${tab === item.id ? "active" : ""}`}
+                    onClick={() => setTab(item.id)}>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="grid-wrap ag-theme-quartz">
+          {rowData.length === 0 ? (
+            <div className="empty">
+              {tab === "trades" ? "No trades yet — press Run trade to start one." : `No ${tab} rows yet.`}
+            </div>
+          ) : (
+            <AgGridReact
+              rowData={rowData as any[]}
+              columnDefs={columnDefs[tab]}
+              defaultColDef={{ sortable: true, resizable: true, suppressHeaderMenuButton: true }}
+              getRowId={(params) => params.data.id ?? params.data.txn_id ?? params.data.event_id ?? Math.random().toString(36)}
+              rowSelection="single"
+              suppressCellFocus
+              onRowClicked={(event) => {
+                if (tab === "trades") selectTrade(event.data.id);
+              }}
+              onCellClicked={(event) => {
+                if (tab === "agents" && event.colDef.colId === "toggle_agent") {
+                  toggleAgent(event.data);
+                }
+                if (tab === "approvals" && event.colDef.colId === "decide" && event.data.state === "PENDING") {
+                  setSelectedApproval(event.data);
+                }
+              }}
+            />
+          )}
+        </div>
+      </section>
+      {selectedApproval && (
+        <ApprovalPanel approval={selectedApproval} onClose={() => setSelectedApproval(null)} />
+      )}
+    </>
   );
 }

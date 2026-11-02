@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { streamUrl, type StreamEvent } from "./api";
 import { useConsole } from "./store";
 import TopBar from "./components/TopBar";
-import ActionBar from "./components/ActionBar";
+import LeftRailNavigation from "./components/LeftRailNavigation";
 import AgentGraph from "./components/AgentGraph";
 import DataConsole from "./components/DataConsole";
 import EventDrawer from "./components/EventDrawer";
@@ -65,22 +65,14 @@ export default function App() {
   if (!role) return <LoginScreen />;
 
   return (
-    <div className="shell">
+    <div className="aeon-workspace-grid">
       <TopBar />
-      <ActionBar />
-      <div className="workzone">
-        <div className="left-col">
-          <AgentGraph />
-          <DataConsole />
-        </div>
-        <EventDrawer />
-      </div>
-      <footer className="footer">
-        <strong>SANDBOX ONLY</strong>
-        <span>·</span>
-        <span className="grow">{config?.disclosures?.join("  ·  ")}</span>
-        <span className="mono">{(config?.money_unit ?? "micro-USD").toUpperCase()}</span>
-      </footer>
+      <LeftRailNavigation />
+      <main className="main-operation-theater">
+        <AgentGraph />
+        <DataConsole />
+      </main>
+      <EventDrawer />
 
       {busy && <div className="busy">{busy}</div>}
       {toast && (

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useConsole } from "../store";
 import { formatMoney, formatTime } from "../api";
 
@@ -11,28 +11,57 @@ function severity(eventType: string): string {
 
 export default function EventDrawer() {
   const { events, transcript, selectedTradeId, agents, trades } = useConsole();
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const names = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a.name])), [agents]);
   const trade = trades.find((t) => t.id === selectedTradeId);
   const ordered = useMemo(() => [...events].sort((a, b) => b.seq - a.seq).slice(0, 160), [events]);
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(mediaQuery.matches);
+    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mediaQuery.addEventListener("change", handler);
+    return () => mediaQuery.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && e.target === document.body) {
+        e.preventDefault();
+        setAutoScroll((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
-    <aside className="drawer">
+    <aside className="right-stream-drawer">
       <div className="drawer-head">
         Event stream
         <span className="spacer" />
+        <button
+          className="ghost"
+          onClick={() => setAutoScroll(!autoScroll)}
+          title={autoScroll ? "Pause auto-scroll (Spacebar)" : "Resume auto-scroll (Spacebar)"}
+          style={{ padding: "2px 6px", fontSize: "10px" }}
+        >
+          {autoScroll ? "⏸" : "▶"}
+        </button>
         <span className="pill" style={{ height: 18 }}>{ordered.length}</span>
       </div>
 
-      <div className="log">
+      <div className="log" style={{ overflowY: autoScroll ? "auto" : "scroll" }}>
         {ordered.length === 0 && <div className="empty">Waiting for events…</div>}
         {ordered.map((event) => (
           <div key={`${event.seq}-${event.id}`} className={`log-row ${severity(event.type)}`}>
             <span className="ts">{formatTime(event.created_at)}</span>
-            <span>
-              <span className="type">{event.type}</span>
-              {event.trade_id ? ` · ${event.trade_id.slice(0, 12)}` : ""}
-              {typeof event.payload?.amount_micro === "number" && ` · ${formatMoney(event.payload.amount_micro as number, false)} µ`}
-            </span>
+            <span className="type">{event.type}</span>
+            {event.trade_id ? <span className="mono"> · {event.trade_id.slice(0, 12)}</span> : ""}
+            {typeof event.payload?.amount_micro === "number" && (
+              <span className="mono"> · {formatMoney(event.payload.amount_micro as number, false)} µ</span>
+            )}
           </div>
         ))}
       </div>
@@ -68,7 +97,11 @@ export default function EventDrawer() {
             <div className="meta">
               {row.llm?.source ?? "n/a"}/{row.llm?.model?.split("/").pop() ?? "n/a"}
               {" · "}
-              {row.guardrail?.passed ? "guardrail ok" : `guardrail: ${row.guardrail?.failed?.join(",")}`}
+              {row.guardrail?.passed ? (
+                <span style={{ color: "var(--semantic-in)" }}>guardrail ok</span>
+              ) : (
+                <span style={{ color: "var(--semantic-risk)" }}>guardrail: {row.guardrail?.failed?.join(",")}</span>
+              )}
             </div>
           </div>
         ))}

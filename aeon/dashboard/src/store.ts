@@ -2,7 +2,7 @@ import { create } from "zustand";
 import {
   type Agent, type Approval, type AuditEntry, type InvariantReport, type LedgerEntry,
   type PayoutItem, type PublicConfig, type Role, type StreamEvent, type Trade,
-  api, getToken, setToken,
+  api, getAuthState, getToken, setAuthState, setToken,
 } from "./api";
 
 export type Tab = "ledger" | "trades" | "payouts" | "agents" | "approvals" | "audit";
@@ -32,7 +32,8 @@ interface ConsoleState {
   pendingFunding: { id: string; agentId: string } | null;
 
   bootstrap: () => Promise<void>;
-  login: (password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string) => Promise<void>;
   judge: () => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
@@ -55,6 +56,7 @@ interface ConsoleState {
 }
 
 const MAX_EVENTS = 300;
+let bootstrapStarted = false;
 
 // SSE replay on reconnect can resend events the client already has, so merge by
 // id instead of appending blindly.
@@ -89,20 +91,24 @@ export const useConsole = create<ConsoleState>((set, get) => ({
   pendingFunding: null,
 
   bootstrap: async () => {
+    if (bootstrapStarted) return;
+    bootstrapStarted = true;
     try {
       const config = await api.config();
       set({ config, booted: true });
       if (getToken()) {
-        try {
-          const me = await api.me();
-          set({ role: me.role, quotas: me.quotas });
+        const auth = getAuthState();
+        if (auth) {
+          set({ role: auth.role, quotas: auth.quotas });
           await get().refresh();
-        } catch {
+        } else {
           setToken(null);
         }
       }
-      const recent = await api.recentEvents(0).catch(() => ({ events: [] }));
-      set({ events: recent.events.slice(-MAX_EVENTS) });
+      if (getToken()) {
+        const recent = await api.recentEvents(0);
+        set({ events: recent.events.slice(-MAX_EVENTS) });
+      }
 
       // A funding order awaiting buyer approval survives the PayPal round trip.
       const pending = localStorage.getItem("aeon.pendingFunding");
@@ -115,17 +121,26 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     }
   },
 
-  login: async (password) => {
-    const session = await api.login(password);
+  login: async (email, password) => {
+    const session = await api.login(email, password);
     setToken(session.token);
-    const me = await api.me();
-    set({ role: me.role, quotas: me.quotas });
-    await get().refresh();
+    setAuthState(session.role, session.quotas);
+    set({ role: session.role, quotas: session.quotas });
+    void get().refresh();
+  },
+
+  signup: async (email, password) => {
+    const session = await api.signup(email, password);
+    setToken(session.token);
+    setAuthState(session.role, session.quotas);
+    set({ role: session.role, quotas: session.quotas });
+    void get().refresh();
   },
 
   judge: async () => {
     const session = await api.judge();
     setToken(session.token);
+    setAuthState("judge", session.quotas);
     set({ role: "judge", quotas: session.quotas });
     await get().refresh();
   },
@@ -136,10 +151,28 @@ export const useConsole = create<ConsoleState>((set, get) => ({
   },
 
   refresh: async () => {
+    if (!getToken()) return;
     const results = await Promise.allSettled([
       api.agents(), api.trades(), api.entries(), api.payouts(), api.batches(),
       api.approvals(), api.audit(), api.invariant(), api.status(), api.workers(),
     ]);
+    if (!getToken()) {
+      set({
+        role: null,
+        quotas: null,
+        agents: [],
+        trades: [],
+        entries: [],
+        payouts: [],
+        batches: [],
+        approvals: [],
+        audit: [],
+        invariant: null,
+        status: null,
+        workers: [],
+      });
+      return;
+    }
     const value = <T,>(index: number): T | null =>
       results[index].status === "fulfilled" ? (results[index] as PromiseFulfilledResult<T>).value : null;
     const agents = value<{ agents: Agent[] }>(0);

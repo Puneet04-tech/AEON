@@ -123,6 +123,16 @@ async def security_and_limits(request: Request, call_next):
                                         status_code=400)
                 return JSONResponse({"detail": "invalid JSON"}, status_code=400)
             request._body = raw  # type: ignore[attr-defined]
+            body_sent = False
+
+            async def receive_body():
+                nonlocal body_sent
+                if body_sent:
+                    return {"type": "http.request", "body": b"", "more_body": False}
+                body_sent = True
+                return {"type": "http.request", "body": raw, "more_body": False}
+
+            request._receive = receive_body  # type: ignore[attr-defined]
 
     # Only API traffic is limited. Static assets and the SSE stream are not:
     # a 429 on the stream makes EventSource retry every few seconds, which would

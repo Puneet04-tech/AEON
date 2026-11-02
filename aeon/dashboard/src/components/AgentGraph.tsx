@@ -69,6 +69,7 @@ export default function AgentGraph() {
           stroke: event.type === "trade.settled" ? "var(--semantic-in)" : "var(--accent-solid)",
           strokeWidth: event.type === "trade.settled" ? 1.2 : 1.8,
           opacity: 0.85,
+          strokeDasharray: event.type === "trade.settled" ? "none" : "4 2",
         },
         label: event.type.replace("trade.", ""),
         labelStyle: { fontSize: 9, fill: "var(--neutral-text-min)" },
@@ -83,26 +84,36 @@ export default function AgentGraph() {
   useEffect(() => setEdges([]), [agents.length, setEdges]);
 
   return (
-    <section className="graph-panel">
-      <span className="panel-label">Agent topology · live money flow</span>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={(_, node) => selectTrade(selectedTradeId)}
-        fitView
-        fitViewOptions={{ padding: 0.25 }}
-        proOptions={{ hideAttribution: true }}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        minZoom={0.5}
-        maxZoom={1.4}
-      >
-        <Background gap={22} size={1} color="var(--neutral-border)" />
-        <Controls showInteractive={false} />
-      </ReactFlow>
+    <section className="topology-canvas-pane">
+      <svg className="micro-dot-grid" width="100%" height="100%">
+        <pattern id="micro-dots" x="0" y="0" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="11" cy="11" r="0.8" fill="var(--neutral-border)" />
+        </pattern>
+        <rect x="0" y="0" width="100%" height="100%" fill="url(#micro-dots)" />
+      </svg>
+      <span className="panel-label" style={{ position: "absolute", top: 8, left: 12, zIndex: 5, fontSize: "10px", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--neutral-text-min)" }}>
+        Agent topology · live money flow
+      </span>
+      <div style={{ width: "100%", height: "100%" }}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={(_, node) => selectTrade(selectedTradeId)}
+          fitView
+          fitViewOptions={{ padding: 0.25 }}
+          proOptions={{ hideAttribution: true }}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          minZoom={0.5}
+          maxZoom={1.4}
+        >
+          <Background gap={22} size={1} color="var(--neutral-border)" />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </div>
     </section>
   );
 }

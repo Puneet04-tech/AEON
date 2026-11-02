@@ -124,6 +124,9 @@ export interface StreamEvent {
 }
 
 const TOKEN_KEY = "aeon.token";
+const ROLE_KEY = "aeon.role";
+const QUOTAS_KEY = "aeon.quotas";
+const REQUEST_TIMEOUT_MS = 15000;
 
 /**
  * Empty when the console is served by the API (same origin, the default).
@@ -137,7 +140,27 @@ export function getToken(): string | null {
 
 export function setToken(token: string | null): void {
   if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  else {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(ROLE_KEY);
+    localStorage.removeItem(QUOTAS_KEY);
+  }
+}
+
+export function setAuthState(role: Role, quotas: { scenarios_left: number }): void {
+  localStorage.setItem(ROLE_KEY, role);
+  localStorage.setItem(QUOTAS_KEY, JSON.stringify(quotas));
+}
+
+export function getAuthState(): { role: Role; quotas: { scenarios_left: number } } | null {
+  const role = localStorage.getItem(ROLE_KEY);
+  const quotas = localStorage.getItem(QUOTAS_KEY);
+  if ((role !== "operator" && role !== "judge") || !quotas) return null;
+  try {
+    return { role, quotas: JSON.parse(quotas) };
+  } catch {
+    return null;
+  }
 }
 
 export class ApiError extends Error {
@@ -148,38 +171,62 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, idempotent = false): Promise<T> {
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  idempotent = false,
+  authenticated = true,
+): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   headers.set("Accept", "application/json");
   if (init.body) headers.set("Content-Type", "application/json");
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const token = authenticated ? getToken() : null;
+  if (token) headers.set("Authorization", "Bearer $token");
   if (idempotent) {
     headers.set("Idempotency-Key", crypto.randomUUID().replace(/-/g, ""));
   }
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      signal: init.signal ?? controller.signal,
+    });
   const text = await response.text();
   const body = text ? JSON.parse(text) : {};
   if (!response.ok) {
     const detail = body?.detail;
     const message = typeof detail === "string" ? detail : JSON.stringify(detail ?? body);
-    if (response.status === 401) setToken(null);
     throw new ApiError(response.status, message);
   }
   return body as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(408, "Request timed out. Check that the API server is running.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export const api = {
-  config: () => request<PublicConfig>("/api/v1/config"),
-  login: (password: string) =>
-    request<{ token: string; role: Role }>("/api/v1/session/login", {
+  config: () => request<PublicConfig>("/api/v1/config", {}, false, false),
+  login: (email: string, password: string) =>
+    request<{ token: string; role: Role; quotas: { scenarios_left: number }; email?: string }>("/api/v1/session/login", {
       method: "POST",
-      body: JSON.stringify({ password }),
-    }),
+      body: JSON.stringify({ email: email || null, password }),
+    }, false, false),
+  signup: (email: string, password: string) =>
+    request<{ token: string; role: Role; quotas: { scenarios_left: number }; email?: string }>("/api/v1/session/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }, false, false),
   judge: () =>
     request<{ token: string; role: Role; quotas: { scenarios_left: number } }>(
       "/api/v1/session/judge",
-      { method: "POST", body: JSON.stringify({}) },
+      { method: "POST", body: JSON.stringify({}) }, false, false,
     ),
   me: () => request<{ role: Role; quotas: { scenarios_left: number } }>("/api/v1/session/me"),
   status: () =>

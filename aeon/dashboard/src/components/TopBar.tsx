@@ -5,7 +5,11 @@ import { compactMoney } from "../api";
 export default function TopBar() {
   const { invariant, killSwitch, status, role, toggleKillSwitch, logout, quotas } = useConsole();
   const [theme, setTheme] = useState<"light" | "dark">(
-    () => (localStorage.getItem("aeon.theme") as "light" | "dark") ?? "light",
+    () => {
+      const saved = localStorage.getItem("aeon.theme");
+      if (saved === "light" || saved === "dark") return saved;
+      return "dark"; // UX audit: dark is the entry default
+    },
   );
 
   useEffect(() => {
@@ -17,7 +21,7 @@ export default function TopBar() {
   const paypalMode = status?.paypal_mode ?? "sandbox";
 
   return (
-    <header className="topbar">
+    <header className="sys-top-bar">
       <div className="brand">
         <span className="mark">A</span>
         AEON
@@ -36,17 +40,23 @@ export default function TopBar() {
         <span className="pill warn">JUDGE RUNS LEFT · {quotas.scenarios_left}</span>
       )}
 
-      <span className={`pill ${invariantOk ? "ok" : "bad"}`} title="Sum of every ledger posting must be zero">
+      <span
+        className={`kill-switch-chip ${invariantOk ? "kill-switch-inactive" : "kill-switch-active"}`}
+        style={{ boxShadow: "var(--shadow-inset)" }}
+        title="Sum of every ledger posting must be zero"
+      >
         <span className="dot" />
         INVARIANT {invariant ? compactMoney(invariant.sum_micro) : "0"} µUSD {invariantOk ? "✓" : "✕"}
       </span>
 
       <button
-        className={`pill ${killSwitch.active ? "bad" : "ok"}`}
-        style={{ cursor: "pointer", height: 22 }}
+        className={`kill-switch-button ${killSwitch.active ? "active" : ""}`}
         onClick={toggleKillSwitch}
         disabled={role !== "operator"}
         title={role === "operator" ? "Block every state change" : "Operator only"}
+        aria-label="Global Emergency System Kill Switch"
+        aria-live="assertive"
+        aria-checked={killSwitch.active}
       >
         {killSwitch.active ? "KILL SWITCH ACTIVE" : "KILL SWITCH"}
       </button>
