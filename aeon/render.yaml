@@ -51,22 +51,6 @@ services:
       - key: AUTO_SEED
         value: "true"
 
-  # The console is a static build that talks to the API across origins, so it lives
-  # outside the API service and needs no server of its own.
-  - type: web
-    name: aeon-console
-    runtime: static
-    rootDir: dashboard
-    buildCommand: npm ci && npm run build
-    staticPublishPath: ./dist
-    envVars:
-      - key: VITE_API_BASE
-        value: https://aeon-api.onrender.com
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-
   - type: web
     name: aeon-worker-atlas
     runtime: python
