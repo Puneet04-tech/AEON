@@ -3,7 +3,7 @@ import { useConsole } from "../store";
 import { compactMoney } from "../api";
 
 export default function TopBar() {
-  const { invariant, killSwitch, status, role, toggleKillSwitch, logout, quotas } = useConsole();
+  const { invariant, killSwitch, status, role, toggleKillSwitch, logout, quotas, readiness } = useConsole();
   const [theme, setTheme] = useState<"light" | "dark">(
     () => {
       const saved = localStorage.getItem("aeon.theme");
@@ -18,7 +18,7 @@ export default function TopBar() {
   }, [theme]);
 
   const invariantOk = invariant?.ok ?? true;
-  const paypalMode = status?.paypal_mode ?? "sandbox";
+  const paypalMode = status?.paypal_mode ?? "unconfigured";
 
   return (
     <header className="sys-top-bar">
@@ -30,9 +30,15 @@ export default function TopBar() {
       <span className="pill">{role === "judge" ? "ROLE · JUDGE" : "ROLE · OPERATOR"}</span>
       <span className={`pill ${paypalMode === "sandbox" ? "ok" : "warn"}`}>
         <span className="dot" />
-        PAYPAL {paypalMode.toUpperCase()}{paypalMode === "mock" ? " (SIMULATED)" : " SANDBOX"}
+        PAYPAL {paypalMode === "unconfigured" ? "NOT CONFIGURED" : paypalMode.toUpperCase()}
       </span>
       <span className="pill">LLM · {(status?.llm_mode ?? "off").toUpperCase()}</span>
+      {readiness && (
+        <span className={`pill ${readiness.ready ? "ok" : "warn"}`}
+              title={readiness.next_actions.filter(Boolean).join(" ") || "Hackathon checks passed"}>
+          DEMO {readiness.ready ? "READY" : "CHECKS NEEDED"}
+        </span>
+      )}
 
       <span className="spacer" />
 

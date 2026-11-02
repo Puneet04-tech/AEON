@@ -9,19 +9,20 @@ changes.
 
 ---
 
-## 0. What is simulated today vs. what a key makes real
+## 0. What requires credentials
 
 | Capability | Without credentials | With credentials |
 |---|---|---|
-| Money movement (funding) | `mock` adapter: order created and captured in-process, clearly labelled in the UI and `/api/v1/config` | Real sandbox order + real `/v2/checkout/orders/{id}/capture`, amount verified before credit |
-| Webhooks | Endpoint exists; a forged body is rejected by signature check | Real `verify-webhook-signature` round trip with PayPal |
-| Settlement payouts | `mock` items go straight to `SUCCEEDED` | Real Payouts batch from your sandbox business account, per-item reconciliation |
+| Money movement (funding) | Unavailable; sandbox credentials are required | Real sandbox order + real `/v2/checkout/orders/{id}/capture`, amount verified before credit |
+| Webhooks | Endpoint exists; a forged body is rejected by signature check | Real `verify-webhook-signature` round trip with PayPal (set `PAYPAL_WEBHOOK_ID` after creating the webhook) |
+| Settlement payouts | Unavailable; money is never simulated | Real Payouts batch from your sandbox business account, per-item reconciliation |
 | Negotiation reasoning | Deterministic fallback (no network) | Live Workers AI call; the LLM proposes, code decides |
 | Persistence | `memory://` wipes on restart | Atlas: ledger survives restarts and redeploys |
 | Compute jobs / metering | **Already real** — signed dispatch to real workers, real Pillow/numpy work, real `process_time` | unchanged |
 | Ledger, guardrails, approvals, SSE | **Already real** | unchanged |
 
-So: four credentials flip four simulated paths. Nothing else about the demo is faked.
+No product path fabricates PayPal money movement. Compute trades and ledger
+inspection remain available while PayPal is unconfigured.
 
 ---
 
@@ -228,7 +229,7 @@ Manual spot checks worth doing once (they are what a judge will poke):
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `paypal_mode: mock` in `/api/v1/config` after setting keys | Keys empty/whitespace or `PAYPAL_MODE=mock` | Re-check the two PayPal vars; `PAYPAL_MODE=sandbox` |
+| `paypal_mode: unconfigured` in `/api/v1/config` after deployment | Sandbox credentials are missing or blank | Set `PAYPAL_MODE=sandbox` plus the sandbox client ID and secret |
 | Funding returns `401 invalid_client` | Using live keys, or a space/newline in the secret | Regenerate the sandbox secret, paste exactly |
 | Webhook returns 400 with a valid PayPal event | `PAYPAL_WEBHOOK_ID` from another app/webhook | Recreate the webhook for this URL and update the ID |
 | Payout item `RECEIVER_UNREGISTERED` | Sandbox receiver email not confirmed | Log into that sandbox account once and confirm |

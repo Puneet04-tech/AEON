@@ -59,7 +59,7 @@ faster than its accounting is, so we built the accounting.
 ### How we built it
 
 Python 3.11 + FastAPI services, MongoDB as the system of record, a React/Vite console (React Flow for
-the agent topology, AG Grid for the data planes, SSE for live events), and Docker/Render for hosting.
+the agent topology, AG Grid for the data planes, SSE for live events), and Render/Vercel for hosting.
 
 The design rule that shaped everything: **the model is an advisor, never an authority.** The LLM
 produces a price or a recommendation; policy code re-checks it against integer micro-USD limits and
@@ -83,8 +83,8 @@ Transfers are one ledger transaction with balanced legs, and every mutation take
   correctly rejected as duplicates) was only visible because the invariant and wallets disagreed.
 - **Trusting webhooks.** Signature verification plus idempotent crediting by capture id, with an
   explicit 400 on a forged body, so a public endpoint is not a money printer.
-- **Keeping the demo honest.** Every simulated input is labelled as simulated in the UI and in
-  `/api/v1/config`; the runtime prints which PayPal and LLM adapters are active.
+- **Keeping the demo honest.** PayPal is sandbox-only and disabled until credentials are configured;
+  the runtime labels the active PayPal and AI integration modes.
 
 ### Accomplishments we are proud of
 
@@ -119,7 +119,7 @@ Transfers are one ledger transaction with balanced legs, and every mutation take
 - **Video:** <<https://youtu.be/...>>
 
 **Built with:** python, fastapi, mongodb, atlas, react, typescript, vite, react-flow, ag-grid,
-server-sent-events, docker, render, paypal-orders-v2, paypal-payouts-v1, paypal-webhooks,
+server-sent-events, render, vercel, paypal-orders-v2, paypal-payouts-v1, paypal-webhooks,
 cloudflare-workers-ai, mcp, json-rpc, hypothesis, pytest, pydantic, structlog, pillow, numpy.
 
 ---

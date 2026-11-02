@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import {
   type Agent, type Approval, type AuditEntry, type InvariantReport, type LedgerEntry,
-  type PayoutItem, type PublicConfig, type Role, type StreamEvent, type Trade,
+  type PayoutItem, type PublicConfig, type Role, type StreamEvent, type Trade, type ExecutionEvidence, type Dispute, type HackathonReadiness,
   api, getAuthState, getToken, setAuthState, setToken,
 } from "./api";
 
@@ -26,6 +26,9 @@ interface ConsoleState {
   events: StreamEvent[];
   selectedTradeId: string | null;
   transcript: any[];
+  evidence: ExecutionEvidence | null;
+  dispute: Dispute | null;
+  readiness: HackathonReadiness | null;
   tab: Tab;
   busy: string | null;
   toast: { text: string; kind: "ok" | "error" } | null;
@@ -38,6 +41,8 @@ interface ConsoleState {
   logout: () => void;
   refresh: () => Promise<void>;
   selectTrade: (id: string | null) => Promise<void>;
+  openDispute: (reason: string) => Promise<void>;
+  resolveDispute: (outcome: "refund" | "release", note: string) => Promise<void>;
   runTrade: (buyerId: string, sellerId: string, job: "image_resize" | "matrix_multiply") => Promise<void>;
   runSettlement: () => Promise<void>;
   runScenario: (name: string) => Promise<void>;
@@ -85,6 +90,9 @@ export const useConsole = create<ConsoleState>((set, get) => ({
   events: [],
   selectedTradeId: null,
   transcript: [],
+  evidence: null,
+  dispute: null,
+  readiness: null,
   tab: "trades",
   busy: null,
   toast: null,
@@ -154,7 +162,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     if (!getToken()) return;
     const results = await Promise.allSettled([
       api.agents(), api.trades(), api.entries(), api.payouts(), api.batches(),
-      api.approvals(), api.audit(), api.invariant(), api.status(), api.workers(),
+      api.approvals(), api.audit(), api.invariant(), api.status(), api.workers(), api.readiness(),
     ]);
     if (!getToken()) {
       set({
@@ -185,6 +193,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     const invariant = value<InvariantReport>(7);
     const status = value<any>(8);
     const workers = value<{ workers: any[] }>(9);
+    const readiness = value<HackathonReadiness>(10);
     set({
       agents: agents?.agents ?? get().agents,
       trades: trades?.trades ?? get().trades,
@@ -197,17 +206,45 @@ export const useConsole = create<ConsoleState>((set, get) => ({
       status: status ?? get().status,
       killSwitch: status?.kill_switch ?? get().killSwitch,
       workers: workers?.workers ?? get().workers,
+      readiness: readiness ?? get().readiness,
     });
   },
 
   selectTrade: async (id) => {
-    set({ selectedTradeId: id, transcript: [] });
+    set({ selectedTradeId: id, transcript: [], evidence: null, dispute: null });
     if (!id) return;
     try {
-      const detail = await api.trade(id);
-      set({ transcript: detail.negotiation_transcript ?? [] });
+      const [detail, evidence, dispute] = await Promise.all([
+        api.trade(id), api.evidence(id).catch(() => null), api.dispute(id).catch(() => null),
+      ]);
+      set({ transcript: detail.negotiation_transcript ?? [], evidence: evidence?.evidence ?? null,
+        dispute: dispute ?? null });
     } catch {
       set({ transcript: [] });
+    }
+  },
+
+  openDispute: async (reason) => {
+    const id = get().selectedTradeId;
+    if (!id) return;
+    try {
+      const dispute = await api.createDispute(id, reason);
+      set({ dispute, toast: { text: "Dispute opened and funds held", kind: "ok" } });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "could not open dispute", kind: "error" } });
+    }
+  },
+
+  resolveDispute: async (outcome, note) => {
+    const id = get().selectedTradeId;
+    if (!id) return;
+    try {
+      const dispute = await api.resolveDispute(id, outcome, note);
+      set({ dispute, toast: { text: `Dispute ${outcome}d`, kind: "ok" } });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "could not resolve dispute", kind: "error" } });
     }
   },
 

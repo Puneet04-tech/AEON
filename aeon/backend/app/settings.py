@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # Only used when PAYPAL_CURRENCY is switched to a non-USD code. AEON books
     # everything in micro-USD, so amounts are converted at this rate out and back.
     PAYPAL_USD_TO_INR: float = 83.0
+    ALLOW_MOCK_PAYPAL: bool = False
     PAYPAL_SENDER_BATCH_ID_PREFIX: str = "AEON"
 
     # Treasury / settlement limits, micro-USD
@@ -73,7 +74,6 @@ class Settings(BaseSettings):
     # Web / CORS
     ALLOWED_ORIGIN: str = "http://localhost:5173"
     DASHBOARD_DIR: str = "dashboard/dist"
-    ALLOW_MOCK_PAYPAL: bool = True
 
     # Rate limiting
     RATE_LIMIT_WINDOW: int = 60
@@ -103,15 +103,14 @@ class Settings(BaseSettings):
 
     @property
     def paypal_effective_mode(self) -> str:
-        """Sandbox is the only real mode; mock is an explicitly simulated fallback."""
-        if self.PAYPAL_MODE == "mock":
-            if not self.ALLOW_MOCK_PAYPAL:
-                raise RuntimeError("PAYPAL_MODE=mock is disabled by ALLOW_MOCK_PAYPAL=false")
+        """Return sandbox only when PayPal credentials are configured.
+
+        The mock adapter is available only to the isolated test harness; it is
+        disabled by default and cannot be enabled accidentally in deployment.
+        """
+        if self.PAYPAL_MODE == "mock" and self.ALLOW_MOCK_PAYPAL:
             return "mock"
-        if not self.paypal_enabled:
-            # No credentials: fall back to the simulated adapter, clearly labelled.
-            return "mock"
-        return "sandbox"
+        return "sandbox" if self.paypal_enabled else "unconfigured"
 
     @property
     def cors_origins(self) -> List[str]:

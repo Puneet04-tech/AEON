@@ -22,6 +22,7 @@ export default function ActionBar() {
   }, [consumers, providers, buyer, seller, fundTarget]);
 
   const operator = role === "operator";
+  const paypalReady = status?.paypal_mode === "sandbox";
   const healthyWorkers = workers.filter((w) => w.healthy).length;
 
   return (
@@ -57,8 +58,8 @@ export default function ActionBar() {
 
       <span className="divider" />
 
-      <button disabled={!!busy || !operator} onClick={runSettlement}
-              title={operator ? "Net balances and send a PayPal payout batch" : "Operator only"}>
+      <button disabled={!!busy || !operator || !paypalReady} onClick={runSettlement}
+              title={!paypalReady ? "Configure PayPal sandbox credentials first" : "Net balances and send a PayPal payout batch"}>
         Settle
       </button>
 
@@ -80,7 +81,7 @@ export default function ActionBar() {
       </select>
       <input style={{ width: 60 }} value={fundAmount} onChange={(event) => setFundAmount(event.target.value)}
              title="Amount in USD" />
-      <button disabled={!!busy || !operator || !fundTarget}
+      <button disabled={!!busy || !operator || !paypalReady || !fundTarget}
               onClick={() => {
                 const usd = Number(fundAmount);
                 if (!Number.isFinite(usd) || usd <= 0) return;
@@ -88,6 +89,7 @@ export default function ActionBar() {
               }}>
         Fund
       </button>
+      {!paypalReady && <span className="pill warn">PAYPAL SANDBOX CREDENTIALS REQUIRED</span>}
       {pendingFunding && (
         <button className="primary" disabled={!!busy || !operator}
                 title="Capture the PayPal order you approved in the PayPal tab"

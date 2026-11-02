@@ -4,7 +4,7 @@ export type Role = "operator" | "judge";
 
 export interface PublicConfig {
   environment: string;
-  paypal_mode: "sandbox" | "mock";
+  paypal_mode: "sandbox" | "unconfigured" | "mock";
   paypal_env: string;
   llm_mode: string;
   judge_session_minutes: number;
@@ -58,8 +58,45 @@ export interface Trade {
   settlement?: { price_micro: number; fee_micro: number; penalty_micro: number };
   failure?: { code: string; message: string };
   guardrail?: { passed: boolean; failed: string[] };
+  selection?: { provider_name: string; quote_micro: number; reputation_score: number; sample_size: number; verification_rate: number; reason: string };
+  verification?: { passed: boolean; level: string; checks: { name: string; passed: boolean }[]; checked_at: string };
+  dispute_id?: string;
   links?: { rerouted_from?: string | null; rerouted_to?: string | null };
   created_at: string;
+}
+
+export interface ExecutionEvidence {
+  id: string;
+  trade_id: string;
+  worker_id: string;
+  job_type: string;
+  input_digest: string;
+  output_digest: string;
+  runtime_version: string;
+  started_at?: string;
+  completed_at?: string;
+  cpu_seconds: number;
+  wall_ms: number;
+  verification_level: string;
+}
+
+export interface Dispute {
+  id: string;
+  trade_id: string;
+  amount_micro: number;
+  reason: string;
+  state: string;
+  outcome?: string;
+  note?: string;
+}
+
+export interface HackathonReadiness {
+  ready: boolean;
+  checks: Record<string, boolean>;
+  invalid_receivers: { id: string; name: string }[];
+  trade_count: number;
+  evidence_count: number;
+  next_actions: string[];
 }
 
 export interface LedgerEntry {
@@ -243,6 +280,13 @@ export const api = {
   agents: () => request<{ agents: Agent[] }>("/api/v1/agents"),
   trades: (limit = 60) => request<{ trades: Trade[] }>(`/api/v1/trades?limit=${limit}`),
   trade: (id: string) => request<Trade & { negotiation_transcript: any[] }>(`/api/v1/trades/${id}`),
+  evidence: (id: string) => request<{ evidence: ExecutionEvidence; verification: Trade["verification"] }>(`/api/v1/trades/${id}/evidence`),
+  readiness: () => request<HackathonReadiness>("/api/v1/hackathon/readiness"),
+  dispute: (id: string) => request<Dispute | null>(`/api/v1/trades/${id}/dispute`),
+  createDispute: (id: string, reason: string) =>
+    request<Dispute>(`/api/v1/trades/${id}/dispute`, { method: "POST", body: JSON.stringify({ reason }) }, true),
+  resolveDispute: (id: string, outcome: "refund" | "release", note: string) =>
+    request<Dispute>(`/api/v1/trades/${id}/dispute/resolve`, { method: "POST", body: JSON.stringify({ outcome, note }) }, true),
   entries: (limit = 200) => request<{ entries: LedgerEntry[] }>(`/api/v1/ledger/entries?limit=${limit}`),
   invariant: () => request<InvariantReport>("/api/v1/ledger/invariant"),
   balances: () =>

@@ -29,12 +29,18 @@ INDEXES = [
     ("trades", [("seller_id", ASCENDING)], {}),
     ("trades", [("job_id", ASCENDING)], {}),
     ("trades", [("created_at", DESCENDING)], {}),
+    ("trades", [("seller_id", ASCENDING), ("state", ASCENDING), ("updated_at", DESCENDING)], {}),
 
     ("negotiations", [("trade_id", ASCENDING), ("round", ASCENDING)], {}),
 
     ("jobs", [("job_id", ASCENDING)], {"unique": True}),
     ("jobs", [("trade_id", ASCENDING)], {}),
     ("jobs", [("worker_id", ASCENDING), ("created_at", DESCENDING)], {}),
+
+    ("execution_evidence", [("trade_id", ASCENDING)], {"unique": True}),
+    ("verifications", [("trade_id", ASCENDING), ("created_at", DESCENDING)], {}),
+    ("disputes", [("trade_id", ASCENDING)], {"unique": True}),
+    ("disputes", [("state", ASCENDING), ("created_at", DESCENDING)], {}),
 
     ("funding_requests", [("id", ASCENDING)], {"unique": True}),
     ("funding_requests", [("paypal_order_id", ASCENDING)], {"sparse": True}),

@@ -19,6 +19,8 @@ from app.api import scenarios as scenarios_api
 from app.api import session as session_api
 from app.api import settlement as settlement_api
 from app.api import system, trades as trades_api, webhooks
+from app.api import trust as trust_api
+from app.api import readiness as readiness_api
 from app.db.client import close_mongo_connection, connect_to_mongo, get_database
 from app.db.indexes import create_indexes
 from app.db.validators import apply_validators
@@ -164,6 +166,8 @@ app.include_router(system.router)
 app.include_router(session_api.router)
 app.include_router(agents.router)
 app.include_router(trades_api.router)
+app.include_router(trust_api.router)
+app.include_router(readiness_api.router)
 app.include_router(ledger.router)
 app.include_router(funding.router)
 app.include_router(settlement_api.router)

@@ -22,6 +22,7 @@ TREASURY_FLOAT = "treasury_float"
 AGENT_AVAILABLE = "agent_available"
 AGENT_ESCROW = "agent_escrow"
 AGENT_BOND = "agent_bond"
+AGENT_DISPUTE_HOLD = "agent_dispute_hold"
 PLATFORM_FEES = "platform_fees"
 LOAN_RECEIVABLE = "loan_receivable"
 LOAN_PAYABLE = "loan_payable"
@@ -30,9 +31,14 @@ DUST = "dust"
 
 ACCOUNTS = {
     TREASURY_FLOAT, AGENT_AVAILABLE, AGENT_ESCROW, AGENT_BOND, PLATFORM_FEES,
-    LOAN_RECEIVABLE, LOAN_PAYABLE, PAYOUT_IN_FLIGHT, DUST,
+    LOAN_RECEIVABLE, LOAN_PAYABLE, PAYOUT_IN_FLIGHT, DUST, AGENT_DISPUTE_HOLD,
 }
-AGENT_ACCOUNTS = {AGENT_AVAILABLE: "available_micro", AGENT_ESCROW: "escrow_micro", AGENT_BOND: "bond_micro"}
+AGENT_ACCOUNTS = {
+    AGENT_AVAILABLE: "available_micro",
+    AGENT_ESCROW: "escrow_micro",
+    AGENT_BOND: "bond_micro",
+    AGENT_DISPUTE_HOLD: "dispute_hold_micro",
+}
 
 
 class LedgerError(Exception):
@@ -70,6 +76,7 @@ class LedgerService:
             "available_micro": 0,
             "escrow_micro": 0,
             "bond_micro": 0,
+            "dispute_hold_micro": 0,
             "dust_micro": 0,
             "currency": CURRENCY,
             "version": 0,
@@ -96,7 +103,9 @@ class LedgerService:
             "available_micro": int(doc.get("available_micro", 0)),
             "escrow_micro": int(doc.get("escrow_micro", 0)),
             "bond_micro": int(doc.get("bond_micro", 0)),
-            "total_micro": int(doc.get("available_micro", 0)) + int(doc.get("escrow_micro", 0)) + int(doc.get("bond_micro", 0)),
+            "dispute_hold_micro": int(doc.get("dispute_hold_micro", 0)),
+            "total_micro": int(doc.get("available_micro", 0)) + int(doc.get("escrow_micro", 0))
+            + int(doc.get("bond_micro", 0)) + int(doc.get("dispute_hold_micro", 0)),
         }
 
     async def all_balances(self) -> List[dict]:
@@ -264,6 +273,31 @@ class LedgerService:
             idem_key=f"trade:{trade_id}:penalty", memo="SLA penalty from provider bond",
         )
 
+    async def hold_dispute(self, trade_id: str, seller_id: str, amount_micro: int) -> dict:
+        return await self.post(
+            [
+                {"account": AGENT_AVAILABLE, "agent_id": seller_id, "amount_micro": -amount_micro},
+                {"account": AGENT_DISPUTE_HOLD, "agent_id": seller_id, "amount_micro": amount_micro},
+            ],
+            txn_kind="dispute_hold", ref_type="trade", ref_id=trade_id,
+            idem_key=f"trade:{trade_id}:dispute_hold", memo="Provider funds held during dispute",
+        )
+
+    async def resolve_dispute(self, trade_id: str, seller_id: str, buyer_id: str,
+                              amount_micro: int, refund: bool) -> dict:
+        destination = AGENT_AVAILABLE
+        destination_agent = buyer_id if refund else seller_id
+        return await self.post(
+            [
+                {"account": AGENT_DISPUTE_HOLD, "agent_id": seller_id, "amount_micro": -amount_micro},
+                {"account": destination, "agent_id": destination_agent, "amount_micro": amount_micro},
+            ],
+            txn_kind="dispute_refund" if refund else "dispute_release",
+            ref_type="trade", ref_id=trade_id,
+            idem_key=f"trade:{trade_id}:dispute:{'refund' if refund else 'release'}",
+            memo="Dispute refund to buyer" if refund else "Dispute released to provider",
+        )
+
     async def charge_fee(self, ref_type: str, ref_id: str, agent_id: str, amount_micro: int) -> dict:
         return await self.post(
             [
@@ -384,7 +418,8 @@ class LedgerService:
             agent_id, account = key.split("|")
             doc = wallets.setdefault(agent_id, {
                 "agent_id": agent_id, "available_micro": 0, "escrow_micro": 0,
-                "bond_micro": 0, "dust_micro": 0, "currency": CURRENCY, "version": 0,
+                "bond_micro": 0, "dispute_hold_micro": 0, "dust_micro": 0,
+                "currency": CURRENCY, "version": 0,
                 "created_at": _now(),
             })
             doc[AGENT_ACCOUNTS[account]] = amount

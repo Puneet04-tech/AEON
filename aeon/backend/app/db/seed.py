@@ -39,7 +39,7 @@ AGENTS: List[dict] = [
     },
     {
         "id": "agt_cirrus", "name": "Cirrus", "role": "provider", "status": "ACTIVE",
-        "region_label": "Region A (simulated)", "paypal_email": "cirrus-provider@example.com",
+        "region_label": "Region A (simulated)", "paypal_email": "sb-wl43b753640533@personal.example.com",
         "profile": {"capacity_cpu_s_per_min": 1800, "base_cost_micro": 220000,
                     "worker_url": settings.worker_urls[0] if settings.worker_urls else "http://localhost:8001"},
         "policy": {"cash_out": True, "per_trade_cap_micro": 5_000_000, "daily_cap_micro": 40_000_000,
@@ -50,7 +50,7 @@ AGENTS: List[dict] = [
     },
     {
         "id": "agt_dunlin", "name": "Dunlin", "role": "provider", "status": "ACTIVE",
-        "region_label": "Region B (simulated)", "paypal_email": "dunlin-provider@example.com",
+        "region_label": "Region B (simulated)", "paypal_email": "sb-thdmb53676380@personal.example.com",
         "profile": {"capacity_cpu_s_per_min": 1200, "base_cost_micro": 190000,
                     "worker_url": settings.worker_urls[1] if len(settings.worker_urls) > 1 else "http://localhost:8002"},
         "policy": {"cash_out": True, "per_trade_cap_micro": 5_000_000, "daily_cap_micro": 30_000_000,

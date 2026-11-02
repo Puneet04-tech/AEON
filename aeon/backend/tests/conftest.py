@@ -22,6 +22,10 @@ os.environ.setdefault("PAYPAL_MODE", "mock")
 os.environ.setdefault("AUTO_SEED", "false")
 os.environ.setdefault("OPERATOR_PASSWORD", "test-operator-password")
 os.environ.setdefault("RATE_LIMIT_MAX", "10000")
+# Tests use the existing isolated adapter so they never contact PayPal. Product
+# and deployment defaults remain sandbox-only with no simulated money movement.
+os.environ.setdefault("PAYPAL_MODE", "mock")
+os.environ.setdefault("ALLOW_MOCK_PAYPAL", "true")
 
 from app.db.client import set_database  # noqa: E402
 from app.db.indexes import create_indexes  # noqa: E402

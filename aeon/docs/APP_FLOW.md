@@ -4,8 +4,8 @@
 
 AEON is a clearing-house dashboard for AI agents that buy and sell compute work.
 It is a demo financial workflow: money is represented as integer micro-USD
-(`1 USD = 1,000,000`), and PayPal is sandbox-only or simulated when credentials
-are not configured.
+(`1 USD = 1,000,000`). PayPal is sandbox-only and requires credentials for
+funding and payouts.
 
 The normal flow is:
 
@@ -39,7 +39,7 @@ aeon/
 ### Backend
 
 The backend owns authentication, sessions, agents, trades, negotiations,
-guardrails, escrow, ledger entries, settlement batches, PayPal sandbox/mock
+guardrails, escrow, ledger entries, settlement batches, PayPal sandbox
 funding, audit records, event streaming, and worker dispatch. MongoDB stores
 accounts, sessions, agents, trades, jobs, events, and financial records.
 
@@ -124,7 +124,7 @@ Open `http://localhost:5173`. The Vite proxy sends `/api` requests to
 5. Watch the trade move through `CREATED`, `AGREED`, `ESCROWED`, `DISPATCHED`,
    `DELIVERED`, `VERIFIED`, and finally `SETTLED`.
 6. Select the trade row to inspect negotiation details and the event stream.
-7. Use **Fund Agent** for sandbox/mock funding.
+7. Use **Fund Agent** after PayPal sandbox credentials are configured.
 8. Use **Settle** to net balances and create a payout batch.
 9. Use **Approvals** for actions above the configured approval threshold.
 10. Use **Audit**, **Ledger**, and **Invariant** views to verify accounting.
@@ -156,8 +156,9 @@ Python services directly, and Vercel builds the dashboard as static assets.
    - `https://aeon-worker-boreal.onrender.com/health`
 7. Confirm API `WORKER_URLS` exactly matches both worker URLs.
 
-For a safe initial deployment, use `LLM_MODE=off` and `PAYPAL_MODE=mock`.
-This keeps the system deterministic and avoids requiring external credentials.
+For the hackathon deployment, use `LLM_MODE=live` with Cloudflare credentials
+and `PAYPAL_MODE=sandbox` with PayPal sandbox credentials. If either integration
+is not configured, AEON labels it unavailable instead of simulating activity.
 
 ### B. Deploy the dashboard to Vercel
 
@@ -222,8 +223,8 @@ port. Render supplies `$PORT`; the start command in `render.yaml` uses it.
 
 ### PayPal funding does not open checkout
 
-Use `PAYPAL_MODE=mock` for a no-credential demo, or configure valid PayPal
-sandbox credentials and return/cancel URLs. No real money is moved.
+Configure valid PayPal sandbox credentials and return/cancel URLs. Without
+them, funding and settlement remain unavailable and no money is simulated.
 
 ## 7. Useful API and validation commands
 
@@ -243,4 +244,3 @@ npm run build
 cd aeon\backend
 pytest -q
 ```
-

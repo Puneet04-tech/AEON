@@ -18,6 +18,7 @@ ACCOUNTS = [
     "loan_receivable",
     "loan_payable",
     "payout_in_flight",
+    "agent_dispute_hold",
     "dust",
 ]
 
@@ -47,6 +48,7 @@ VALIDATORS: Dict[str, Dict[str, Any]] = {
                 "available_micro": {"bsonType": ["int", "long"], "minimum": 0},
                 "escrow_micro": {"bsonType": ["int", "long"], "minimum": 0},
                 "bond_micro": {"bsonType": ["int", "long"], "minimum": 0},
+                "dispute_hold_micro": {"bsonType": ["int", "long"], "minimum": 0},
                 "dust_micro": {"bsonType": ["int", "long"]},
                 "currency": {"enum": ["USD"]},
                 "version": {"bsonType": ["int", "long"]},

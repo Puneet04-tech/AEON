@@ -20,6 +20,8 @@ from app.ledger.service import AGENT_BOND, LedgerService, LedgerError
 from app.services import audit, events
 from app.services.pricing import energy_factor, estimate_cpu_seconds
 from app.services.worker_client import WorkerError, canonical_digest, dispatch_job
+from app.services.trust import build_evidence, verify_evidence, refresh_provider_reputation, selection_explanation
+from app.settings import settings
 
 logger = structlog.get_logger()
 
@@ -108,6 +110,9 @@ async def run_trade(db, buyer_id: str, job: dict, seller_id: Optional[str] = Non
         reference = quote["reference_price_micro"]
 
         trade = await _create_trade(db, buyer, seller, job, quantity, reference, attempt, trade)
+        explanation = await selection_explanation(db, seller, reference)
+        await db.trades.update_one({"id": trade["id"]}, {"$set": {"selection": explanation}})
+        trade["selection"] = explanation
         attempts.append(trade["id"])
         await _emit(db, trade, "trade.created", {"reference_micro": reference, "attempt": attempt})
 
@@ -185,6 +190,8 @@ async def run_trade(db, buyer_id: str, job: dict, seller_id: Optional[str] = Non
         result = envelope.get("result") or {}
         cpu_seconds = float(envelope.get("cpu_seconds", 0.0))
         checksum = envelope.get("checksum")
+        evidence = build_evidence(trade, dispatch, envelope, elapsed_ms)
+        await db.execution_evidence.replace_one({"trade_id": trade["id"]}, evidence, upsert=True)
         await _transition(db, trade, "DELIVERED", metering={
             "cpu_s": cpu_seconds,
             "checksum": checksum,
@@ -197,8 +204,34 @@ async def run_trade(db, buyer_id: str, job: dict, seller_id: Optional[str] = Non
                                  upsert=True)
 
         # Consumer-side verification: recompute the digest from the returned payload.
-        verified = checksum == canonical_digest(result)
-        if not verified:
+        verification = verify_evidence(evidence, result)
+        verifier_url = next(
+            (url for url in settings.worker_urls if url != seller["profile"].get("worker_url")),
+            None,
+        )
+        if verifier_url:
+            try:
+                verifier_envelope = await dispatch_job(db, verifier_url, dispatch)
+                independent_passed = verifier_envelope.get("checksum") == checksum
+                verification["level"] = "independent_deterministic"
+                verification["checks"].append({
+                    "name": "independent_worker_agreement",
+                    "passed": independent_passed,
+                    "worker_id": verifier_envelope.get("worker_id", ""),
+                })
+                verification["passed"] = verification["passed"] and independent_passed
+            except WorkerError as exc:
+                verification["checks"].append({
+                    "name": "independent_worker_agreement",
+                    "passed": None,
+                    "error": exc.code,
+                })
+                verification["level"] = "signed_execution"
+        await db.verifications.insert_one({**verification, "trade_id": trade["id"]})
+        await db.trades.update_one({"id": trade["id"]}, {"$set": {"evidence_id": evidence["id"],
+                                                                  "verification": verification}})
+        trade["verification"] = verification
+        if not verification["passed"]:
             await _handle_failure(db, trade, buyer, seller, price, "verification_failed",
                                   "result checksum did not verify")
             if allow_reroute and attempt < MAX_ATTEMPTS:
@@ -230,6 +263,7 @@ async def run_trade(db, buyer_id: str, job: dict, seller_id: Optional[str] = Non
                                  "rerouted_to": None}, settlement={
                               "price_micro": price, "fee_micro": fee, "penalty_micro": penalty})
         await _update_risk(db, seller["id"], breached)
+        await refresh_provider_reputation(db, seller["id"])
         await audit.record(db, actor_type="agent", actor_id=seller["id"], action="trade.settled",
                            subject_type="trade", subject_id=trade["id"],
                            detail={"price_micro": price, "fee_micro": fee, "penalty_micro": penalty,

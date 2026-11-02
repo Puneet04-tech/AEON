@@ -6,6 +6,8 @@ nonce. A signed chaos switch makes the worker fail health checks so recovery can
 be demonstrated for real.
 """
 import json
+import hashlib
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Dict
@@ -36,6 +38,7 @@ state: Dict[str, object] = {
     "cpu_seconds": 0.0,
     "started_at": datetime.now(timezone.utc),
     "last_failure": None,
+    "corrupt_results": False,
 }
 
 
@@ -106,6 +109,9 @@ async def run_job(request: Request):
         params = {**params}
         params.setdefault("n", int(payload.get("size", 96)))
 
+    started_at = datetime.now(timezone.utc)
+    started_perf = time.perf_counter()
+    input_digest = hashlib.sha256(body).hexdigest()
     meter = Meter()
     try:
         with meter.measure():
@@ -118,6 +124,9 @@ async def run_job(request: Request):
     state["jobs_executed"] = int(state["jobs_executed"]) + 1
     state["cpu_seconds"] = float(state["cpu_seconds"]) + meter.cpu_seconds
     checksum = job_runner.canonical_digest(result)
+    if state["corrupt_results"]:
+        result = {**result, "corrupted_demo": True}
+    completed_at = datetime.now(timezone.utc)
     logger.info("job_done", job_id=payload.get("job_id"), job_type=job_type,
                 cpu_seconds=meter.cpu_seconds, checksum=checksum[:16])
     return {
@@ -128,6 +137,14 @@ async def run_job(request: Request):
         "wall_seconds": meter.wall_seconds,
         "checksum": checksum,
         "result": result,
+        "evidence": {
+            "input_digest": input_digest,
+            "output_digest": checksum,
+            "runtime_version": "worker-1.0.0",
+            "started_at": started_at.isoformat(),
+            "completed_at": completed_at.isoformat(),
+            "wall_ms": int((time.perf_counter() - started_perf) * 1000),
+        },
     }
 
 
@@ -140,13 +157,16 @@ async def chaos(request: Request):
     except ValueError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid JSON")
     state["healthy"] = not bool(payload.get("fail"))
-    logger.warning("chaos_toggled", healthy=state["healthy"])
-    return {"worker_id": settings.worker_id, "healthy": state["healthy"]}
+    state["corrupt_results"] = bool(payload.get("corrupt"))
+    logger.warning("chaos_toggled", healthy=state["healthy"], corrupt=state["corrupt_results"])
+    return {"worker_id": settings.worker_id, "healthy": state["healthy"],
+            "corrupt": state["corrupt_results"]}
 
 
 @app.post("/admin/reset")
 async def reset(request: Request):
     """Test helper: clear nonces and failure state."""
     state["healthy"] = True
+    state["corrupt_results"] = False
     reset_nonces()
     return {"ok": True}

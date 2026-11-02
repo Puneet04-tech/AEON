@@ -21,6 +21,7 @@ class KillSwitchRequest(BaseModel):
 
 class ChaosRequest(BaseModel):
     fail: bool
+    corrupt: bool = False
     worker_url: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -79,8 +80,9 @@ async def chaos(worker_id: str, body: ChaosRequest, request: Request,
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no worker url for this id")
 
     async def handler() -> dict:
-        result = await worker_client.set_chaos(target, body.fail, db=db)
+        result = await worker_client.set_chaos(target, body.fail, db=db, corrupt=body.corrupt)
         await events.emit(db, "worker.chaos", {"worker_id": worker_id, "fail": body.fail,
+                                               "corrupt": body.corrupt,
                                                "ok": result.get("ok")}, actor="operator",
                           )
         await audit.record(db, actor_type="operator", actor_id="operator", action="worker.chaos",

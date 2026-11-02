@@ -1,9 +1,10 @@
 """PayPal REST client (sandbox).
 
-Two modes:
+PayPal mode:
   * sandbox: real calls to api-m.sandbox.paypal.com with OAuth2 client credentials
-  * mock:    a clearly-labelled simulated adapter used only when credentials are
-             absent (or PAYPAL_MODE=mock). It never contacts PayPal.
+
+When credentials are absent, PayPal actions fail explicitly as unavailable. AEON
+does not simulate money movement.
 
 Live PayPal is refused by settings validation: AEON is sandbox-only.
 """
@@ -61,11 +62,15 @@ class PayPalClient:
         self._token: Optional[str] = None
         self._token_expires: float = 0.0
         self._lock = asyncio.Lock()
+        if self.mode == "unconfigured":
+            raise PayPalError(
+                "PayPal sandbox credentials are not configured",
+                status=503,
+                code="paypal_not_configured",
+            )
 
     # ------------------------------------------------------------------ auth
     async def _access_token(self) -> str:
-        if self.mode == "mock":
-            return "mock-token"
         now = time.time()
         if self._token and now < self._token_expires - 60:
             return self._token

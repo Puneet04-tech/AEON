@@ -10,7 +10,7 @@ function severity(eventType: string): string {
 }
 
 export default function EventDrawer() {
-  const { events, transcript, selectedTradeId, agents, trades } = useConsole();
+  const { events, transcript, selectedTradeId, agents, trades, evidence, dispute, openDispute, resolveDispute } = useConsole();
   const [autoScroll, setAutoScroll] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(false);
   const names = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a.name])), [agents]);
@@ -79,6 +79,44 @@ export default function EventDrawer() {
             {trade.failure && (
               <div style={{ color: "var(--semantic-risk)", marginTop: 4 }}>
                 {trade.failure.code}: {trade.failure.message}
+              </div>
+            )}
+            {trade?.selection && (
+              <div className="meta" style={{ marginBottom: 6 }}>
+                Trust selection: {trade.selection.provider_name} · score {trade.selection.reputation_score}
+                {" · "}
+                {Math.round(trade.selection.verification_rate * 100)}% verified ({trade.selection.sample_size} samples)
+              </div>
+            )}
+            {evidence && (
+              <div className="meta" style={{ marginBottom: 6 }}>
+                Evidence: <span className="mono">{evidence.worker_id}</span> · {evidence.verification_level}
+                {" · "}{evidence.wall_ms} ms · {evidence.cpu_seconds.toFixed(3)} CPU s
+                {trade?.verification && (
+                  <span style={{ color: trade.verification.passed ? "var(--semantic-in)" : "var(--semantic-risk)" }}>
+                    {" · "}{trade.verification.passed ? "verified" : "verification failed"}
+                  </span>
+                )}
+              </div>
+            )}
+            {trade?.state === "SETTLED" && !dispute && (
+              <button className="ghost" style={{ marginBottom: 6 }} onClick={() => {
+                void openDispute("The delivered result requires independent review.");
+              }}>
+                Open evidence dispute
+              </button>
+            )}
+            {dispute && (
+              <div className="meta" style={{ marginBottom: 6 }}>
+                Dispute {dispute.state}: {dispute.reason}
+                {dispute.state === "OPEN" && (
+                  <span>
+                    {" · "}
+                    <button className="ghost" onClick={() => void resolveDispute("refund", "Evidence review approved a buyer refund.")}>Refund</button>
+                    {" "}
+                    <button className="ghost" onClick={() => void resolveDispute("release", "Evidence review released the provider funds.")}>Release</button>
+                  </span>
+                )}
               </div>
             )}
           </div>

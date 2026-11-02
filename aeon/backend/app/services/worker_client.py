@@ -94,10 +94,10 @@ async def all_worker_health() -> List[dict]:
     return [await worker_health(url) for url in settings.worker_urls]
 
 
-async def set_chaos(worker_url: str, fail: bool, db=None) -> dict:
+async def set_chaos(worker_url: str, fail: bool, db=None, corrupt: bool = False) -> dict:
     """Flip the worker's signed chaos switch (real detection, real recovery)."""
     path = "/admin/chaos"
-    body = json.dumps({"fail": fail}, sort_keys=True, separators=(",", ":")).encode()
+    body = json.dumps({"fail": fail, "corrupt": corrupt}, sort_keys=True, separators=(",", ":")).encode()
     timestamp = str(int(time.time()))
     nonce = uuid.uuid4().hex
     signature = sign("POST", path, timestamp, nonce, body)
@@ -112,7 +112,7 @@ async def set_chaos(worker_url: str, fail: bool, db=None) -> dict:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(f"{worker_url.rstrip('/')}{path}", content=body, headers=headers)
-        return {"url": worker_url, "ok": response.status_code == 200, "fail": fail,
+        return {"url": worker_url, "ok": response.status_code == 200, "fail": fail, "corrupt": corrupt,
                 "status": response.status_code}
     except httpx.HTTPError as exc:
         return {"url": worker_url, "ok": False, "fail": fail, "error": str(exc)[:120]}

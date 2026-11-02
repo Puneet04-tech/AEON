@@ -70,7 +70,7 @@ async def public_config():
         "currency": "USD",
         "money_unit": "micro-USD (1 USD = 1,000,000)",
         "disclosures": [
-            "PayPal sandbox only: no real money moves.",
+            "PayPal sandbox only: funding and payouts require configured sandbox credentials; no real money moves.",
             "Weather is real (Open-Meteo); energy price and regions are simulated.",
             "Agent decisions use Cloudflare Workers AI, validated by deterministic guardrails.",
         ],
