@@ -181,7 +181,7 @@ async function request<T>(
   headers.set("Accept", "application/json");
   if (init.body) headers.set("Content-Type", "application/json");
   const token = authenticated ? getToken() : null;
-  if (token) headers.set("Authorization", "Bearer $token");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (idempotent) {
     headers.set("Idempotency-Key", crypto.randomUUID().replace(/-/g, ""));
   }

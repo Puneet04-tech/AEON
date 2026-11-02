@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useConsole } from "../store";
 
 export default function TradeDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -9,6 +9,15 @@ export default function TradeDialog({ isOpen, onClose }: { isOpen: boolean; onCl
 
   const consumers = useMemo(() => agents.filter((a) => a.role === "consumer"), [agents]);
   const providers = useMemo(() => agents.filter((a) => a.role === "provider"), [agents]);
+
+  useEffect(() => {
+    if (!consumers.some((agent) => agent.id === buyer)) {
+      setBuyer(consumers[0]?.id ?? "");
+    }
+    if (!providers.some((agent) => agent.id === seller)) {
+      setSeller(providers[0]?.id ?? "");
+    }
+  }, [buyer, consumers, providers, seller]);
 
   if (!isOpen) return null;
 
