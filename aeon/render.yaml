@@ -43,11 +43,11 @@ services:
       - key: WORKER_URLS
         value: https://aeon-worker-atlas.onrender.com,https://aeon-worker-boreal.onrender.com
       - key: ALLOWED_ORIGIN
-        value: https://aeon-console.onrender.com
+        sync: false
       - key: PAYPAL_RETURN_URL
-        value: https://aeon-console.onrender.com/?funding=return
+        sync: false
       - key: PAYPAL_CANCEL_URL
-        value: https://aeon-console.onrender.com/?funding=cancel
+        sync: false
       - key: AUTO_SEED
         value: "true"
 
