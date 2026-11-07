@@ -54,6 +54,11 @@ async def lifespan(app: FastAPI):
 
         await seed(db)
         logger.info("demo_seed_applied")
+    from app.db.seed import repair_worker_urls
+
+    repaired = await repair_worker_urls(db)
+    if repaired:
+        logger.info("startup_worker_url_repair", fixed=repaired)
     logger.info("aeon_api_started", version=settings.APP_VERSION,
                 paypal_mode=settings.paypal_effective_mode, llm_mode=settings.LLM_MODE)
     yield

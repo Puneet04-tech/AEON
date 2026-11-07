@@ -41,7 +41,7 @@ AGENTS: List[dict] = [
         "id": "agt_cirrus", "name": "Cirrus", "role": "provider", "status": "ACTIVE",
         "region_label": "Region A (simulated)", "paypal_email": "sb-wl43b753640533@personal.example.com",
         "profile": {"capacity_cpu_s_per_min": 1800, "base_cost_micro": 220000,
-                    "worker_url": settings.worker_urls[0] if settings.worker_urls else "http://localhost:8001"},
+                    "worker_url": settings.worker_urls[0] if settings.worker_urls else ""},
         "policy": {"cash_out": True, "per_trade_cap_micro": 5_000_000, "daily_cap_micro": 40_000_000,
                    "price_band_bps": 2500, "allowlist": [], "approval_threshold_micro": 25_000_000,
                    "velocity_per_min": 30},
@@ -52,7 +52,7 @@ AGENTS: List[dict] = [
         "id": "agt_dunlin", "name": "Dunlin", "role": "provider", "status": "ACTIVE",
         "region_label": "Region B (simulated)", "paypal_email": "sb-thdmb53676380@personal.example.com",
         "profile": {"capacity_cpu_s_per_min": 1200, "base_cost_micro": 190000,
-                    "worker_url": settings.worker_urls[1] if len(settings.worker_urls) > 1 else "http://localhost:8002"},
+                    "worker_url": settings.worker_urls[1] if len(settings.worker_urls) > 1 else ""},
         "policy": {"cash_out": True, "per_trade_cap_micro": 5_000_000, "daily_cap_micro": 30_000_000,
                    "price_band_bps": 2500, "allowlist": [], "approval_threshold_micro": 25_000_000,
                    "velocity_per_min": 30},
@@ -122,6 +122,28 @@ async def seed(db, reset: bool = False) -> dict:
     await db.kv.update_one({"key": "seed:opening"}, {"$set": {"value": now.isoformat()}}, upsert=True)
     logger.info("seed_complete", agents=created)
     return {"agents": created, "ids": [a["id"] for a in AGENTS]}
+
+
+async def repair_worker_urls(db) -> int:
+    """Point provider profiles at the configured WORKER_URLS if they drifted.
+
+    Providers seeded before WORKER_URLS was set (or on a different host) keep a
+    stale localhost URL in their profile; dispatch uses that profile, so a
+    mismatch silently breaks every trade while /health still passes.
+    """
+    if not settings.worker_urls:
+        return 0
+    fixed = 0
+    roles = ["agt_cirrus", "agt_dunlin"]
+    for agent_id, url in zip(roles, settings.worker_urls):
+        result = await db.agents.update_one(
+            {"id": agent_id, "profile.worker_url": {"$ne": url}},
+            {"$set": {"profile.worker_url": url, "updated_at": datetime.now(timezone.utc)}},
+        )
+        fixed += result.modified_count
+    if fixed:
+        logger.warning("worker_urls_repaired", fixed=fixed)
+    return fixed
 
 
 if __name__ == "__main__":  # pragma: no cover
