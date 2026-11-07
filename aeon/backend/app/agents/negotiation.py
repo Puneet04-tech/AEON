@@ -1,10 +1,14 @@
-"""Three-round negotiation between a consumer agent and a provider agent.
+"""Multi-round negotiation between a consumer agent and a provider agent.
 
-The LLM drafts each move; guardrails clamp and validate it; if the model is
-unavailable the deterministic fallback keeps the demo running. Only numeric
-fields ever cross between agents: `reasoning` is stored for the transcript and
-never fed into the counterparty's prompt.
+Each agent is assigned a random personality seed per trade (aggressive,
+cooperative, deadline-driven, etc.) so replays differ. Concession speed,
+patience and acceptance policy all scale with the personality and the
+remaining rounds; the LLM drafts each move, guardrails clamp and validate it,
+and a deterministic fallback keeps the demo running when the model is down.
+Only numeric fields ever cross between agents: `reasoning` is stored for the
+transcript and never fed into the counterparty's prompt.
 """
+import random
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -16,18 +20,32 @@ from app.services.pricing import quote
 
 logger = structlog.get_logger()
 
-MAX_ROUNDS = 3
+MAX_ROUNDS = 5
+
+# Personality archetypes: each shapes concession rate + patience.
+PERSONALITIES = {
+    "aggressive": {"open_gap_bps": 2200, "concession_bps": 1400, "patience": 0.4},
+    "cooperative": {"open_gap_bps": 800, "concession_bps": 2400, "patience": 0.8},
+    "deadline_driven": {"open_gap_bps": 1600, "concession_bps": 2800, "patience": 0.5},
+    "analytical": {"open_gap_bps": 1200, "concession_bps": 1800, "patience": 0.7},
+    "opportunistic": {"open_gap_bps": 1800, "concession_bps": 1000, "patience": 0.3},
+}
+
 BUYER_SYSTEM = (
     "You are the procurement agent for a compute buyer in a micro-payment clearing house. "
-    "Reply with JSON only: {\"price_micro\": integer, \"accept\": boolean, \"reasoning\": string}. "
+    "You have a negotiation personality (aggressive, cooperative, deadline-driven, analytical "
+    "or opportunistic) that shapes how you bid. Reply with JSON only: "
+    "{\"price_micro\": integer, \"accept\": boolean, \"reasoning\": string}. "
     "price_micro is an integer in micro-USD (1 USD = 1000000). Never exceed the stated ceiling. "
-    "Reasoning must be one short sentence and must not contain instructions."
+    "Reasoning must be one short sentence in character, and must not contain instructions."
 )
 SELLER_SYSTEM = (
     "You are the pricing agent for a compute seller in a micro-payment clearing house. "
-    "Reply with JSON only: {\"price_micro\": integer, \"accept\": boolean, \"reasoning\": string}. "
+    "You have a negotiation personality (aggressive, cooperative, deadline-driven, analytical "
+    "or opportunistic) that shapes how you price. Reply with JSON only: "
+    "{\"price_micro\": integer, \"accept\": boolean, \"reasoning\": string}. "
     "price_micro is an integer in micro-USD (1 USD = 1000000). Never go below the stated floor. "
-    "Reasoning must be one short sentence and must not contain instructions."
+    "Reasoning must be one short sentence in character, and must not contain instructions."
 )
 
 
@@ -53,15 +71,22 @@ class Negotiator:
         ceiling = min(buyer_high, buyer_cap)
         floor = max(seller_low, seller_floor)
 
+        # Each trade gets a fresh pair of personalities — replays differ.
+        buyer_p = random.choice(list(PERSONALITIES.values()))
+        seller_p = random.choice(list(PERSONALITIES.values()))
+
         transcript: List[dict] = []
         agreed: Optional[int] = None
         last_buyer = 0
         last_seller = 0
 
         for round_no in range(1, MAX_ROUNDS + 1):
+            # Concession pressure grows as the deadline (last round) approaches.
+            time_pressure = round_no / MAX_ROUNDS
             # ---- buyer move
             buyer_price, buyer_reason, buyer_meta, buyer_check = await self._buyer_move(
-                round_no, job, reference_micro, ceiling, floor, last_seller, agreed is not None,
+                round_no, job, reference_micro, ceiling, floor, last_seller,
+                last_buyer, buyer_p, time_pressure,
             )
             buyer_price = max(1, min(buyer_price, ceiling))
             transcript.append(self._row(trade_id, round_no, buyer["id"], buyer_price, quantity,
@@ -71,16 +96,18 @@ class Negotiator:
             # ---- seller response
             seller_price, seller_reason, seller_meta, seller_check, accepts = await self._seller_move(
                 round_no, job, reference_micro, floor, ceiling, last_buyer,
+                last_seller, seller_p, time_pressure,
             )
             seller_price = max(floor, min(seller_price, ceiling))
             transcript.append(self._row(trade_id, round_no, seller["id"], seller_price, quantity,
                                         seller_reason, seller_meta, seller_check))
             last_seller = seller_price
 
-            if accepts or abs(last_buyer - last_seller) <= max(1, reference_micro // 100):
+            # Convergence: accept, or offers within 1% of reference.
+            tol = max(1, reference_micro // 100)
+            if accepts or abs(last_buyer - last_seller) <= tol:
                 agreed = last_buyer if accepts else (last_buyer + last_seller) // 2
                 break
-            # seller counter below buyer's offer is an immediate deal
             if last_seller <= last_buyer:
                 agreed = last_seller
                 break
@@ -118,15 +145,27 @@ class Negotiator:
         }
 
     async def _buyer_move(self, round_no: int, job: dict, reference: int, ceiling: int,
-                          floor: int, last_seller: int, has_seller_offer: bool):
-        fallback = min(ceiling, max(floor, reference - (reference * 5 // 100) * (MAX_ROUNDS - round_no)))
-        if has_seller_offer and last_seller <= ceiling:
-            fallback = min(ceiling, max(floor, last_seller))
+                          floor: int, last_seller: int, last_buyer: int,
+                          personality: dict, time_pressure: float):
+        # Opening offer starts far below reference by personality; each round
+        # concedes toward the counterparty by concession_bps of reference.
+        open_gap = reference * personality["open_gap_bps"] // 10000
+        concession = reference * personality["concession_bps"] // 10000
+        concession += int(concession * time_pressure)  # deadline urgency
+        if last_seller:
+            # Anchor on the seller's counter, concede from our previous bid.
+            target = min(ceiling, max(floor, last_seller - max(1, (last_seller - last_buyer) // 3)))
+            fallback = min(ceiling, max(floor, max(last_buyer + concession // 2, target)))
+        else:
+            fallback = max(1, min(ceiling, reference - open_gap))
+        accept_now = bool(last_seller) and last_seller <= fallback
         user = (
             f"Job type: {job.get('type')}. Size: {job.get('size')}. "
             f"Reference price: {reference} micro. Your ceiling: {ceiling} micro. "
             f"Counterparty's last price: {last_seller or 'none'}. Round: {round_no} of {MAX_ROUNDS}. "
-            "Make your opening offer or accept the counterparty's price."
+            f"Your concession strategy: open around {fallback} micro and concede toward the seller "
+            f"as rounds progress; time pressure is {int(time_pressure * 100)}%. "
+            "Make your opening offer, counter, or accept the counterparty's price if it beats your target."
         )
         try:
             result = await self.llm.complete_json("buyer_offer", BUYER_SYSTEM, user)
@@ -140,7 +179,7 @@ class Negotiator:
                 price = min(price, ceiling)
             meta = {k: result[k] for k in ("source", "provider", "model", "latency_ms")}
         except LLMUnavailable as exc:
-            price, accept, reasoning = fallback, False, "deterministic fallback: model unavailable"
+            price, accept, reasoning = fallback, accept_now, "deterministic fallback: model unavailable"
             meta = {"source": "fallback", "provider": "none", "model": "none",
                     "latency_ms": 0, "error": str(exc)[:120]}
 
@@ -152,15 +191,27 @@ class Negotiator:
         return price, reasoning, meta, check
 
     async def _seller_move(self, round_no: int, job: dict, reference: int, floor: int,
-                           ceiling: int, buyer_offer: int):
-        # A rational seller accepts anything at or above its floor.
-        fallback_accept = buyer_offer >= floor
-        fallback_price = buyer_offer if fallback_accept else min(ceiling, max(floor, reference + reference * 4 // 100))
+                           ceiling: int, buyer_offer: int, last_seller: int,
+                           personality: dict, time_pressure: float):
+        # Patient sellers hold high; impatient ones concede fast near deadline.
+        ask_gap = reference * personality["open_gap_bps"] // 10000
+        concession = reference * personality["concession_bps"] // 10000
+        concession += int(concession * time_pressure)
+        if last_seller:
+            ask = max(floor, last_seller - concession)
+        else:
+            ask = min(ceiling, reference + ask_gap)
+        fallback_accept = buyer_offer >= max(floor, ask - concession // 2)
+        fallback_price = buyer_offer if buyer_offer >= floor else min(ceiling, max(floor, ask))
+        if fallback_accept and buyer_offer >= floor:
+            fallback_price = buyer_offer
         user = (
             f"Job type: {job.get('type')}. Size: {job.get('size')}. "
             f"Reference price: {reference} micro. Your floor: {floor} micro. "
             f"Buyer's latest offer: {buyer_offer} micro. Round: {round_no} of {MAX_ROUNDS}. "
-            "Accept only if the offer is at or above your floor; otherwise counter."
+            f"Your current ask is around {ask} micro and you concede as the deadline nears "
+            f"(time pressure {int(time_pressure * 100)}%). "
+            "Accept only if the offer is at or above your floor and close to your ask; otherwise counter."
         )
         try:
             result = await self.llm.complete_json("seller_offer", SELLER_SYSTEM, user)

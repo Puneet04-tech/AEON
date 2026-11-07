@@ -1,0 +1,6 @@
+INFO:     Will watch for changes in these directories: ['F:\\AEON\\aeon\\worker']
+INFO:     Uvicorn running on http://127.0.0.1:8002 (Press CTRL+C to quit)
+INFO:     Started reloader process [23956] using WatchFiles
+INFO:     Started server process [14312]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

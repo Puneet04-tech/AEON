@@ -70,6 +70,11 @@ export default function EventDrawer() {
         <h4>
           Negotiation
           {trade ? ` · ${trade.state}` : " · select a trade"}
+          {transcript.length > 0 && (
+            <span style={{ float: "right", fontWeight: 400, color: "var(--neutral-text-min)" }}>
+              {Math.max(...transcript.map((r: any) => r.round))} rounds · AI-bargained
+            </span>
+          )}
         </h4>
         {trade && (
           <div style={{ marginBottom: 6, fontSize: 11, color: "var(--neutral-text-mid)" }}>

@@ -1,0 +1,26 @@
+# Keeps the free-tier Render services awake by pinging every 10 minutes.
+# Render free instances sleep after 15 min of inactivity; a cold start costs
+# ~30s which ruins a judge's first impression during demo/testing windows.
+name: Keep AEON warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API
+        run: |
+          curl -sf --max-time 60 https://aeon-lqc9.onrender.com/api/v1/config > /dev/null \
+            && echo "API warm" || echo "API ping failed"
+      - name: Ping worker 1
+        run: |
+          curl -sf --max-time 60 https://aeon-worker-1.onrender.com/health > /dev/null \
+            && echo "worker-1 warm" || echo "worker-1 ping failed"
+      - name: Ping worker 2
+        run: |
+          curl -sf --max-time 60 https://aeon-worker-2.onrender.com/health > /dev/null \
+            && echo "worker-2 warm" || echo "worker-2 ping failed"

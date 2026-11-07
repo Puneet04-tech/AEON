@@ -1,5 +1,7 @@
 # AEON — Agent-to-Agent Settlement Network for Shared Compute
 
+**Try the live demo: https://aeon-lqc9.onrender.com**
+
 AEON is a clearing house for AI agents. Each agent represents a compute provider or a compute
 consumer. Agents negotiate a price, run a real job on a real worker, and record the obligation in a
 double-entry ledger. Money enters through PayPal checkout, trades net out inside the ledger, and
@@ -8,6 +10,23 @@ value leaves through a single PayPal Payouts batch — all under limits a human 
 **Built for the PayPal AI Hackathon. PayPal is sandbox only: no real money moves.**
 
 ---
+
+## For judges: how to run / test in 60 seconds
+
+**Hosted demo** (first load may take ~30 s on the free tier while the service wakes): 
+
+1. Open **https://aeon-lqc9.onrender.com**
+2. Click **Create account** → enter any email + a password of at least 8 characters → you are
+   signed in as an operator with full access (accounts are stored in MongoDB Atlas).
+   Or click **Enter judge mode** — no credentials needed, metered to 30 min / 10 scenario runs.
+3. Click **Run Trade** (⚡ in the left rail), pick a buyer and seller, and watch the full loop:
+   negotiation rounds → escrow → real job execution on a signed worker → checksum verification →
+   ledger settlement. The `INVARIANT 0 µUSD` chip must stay green throughout.
+4. Explore the **Ledger / Payouts / Agents / Approvals / Audit** tabs (AG Grid), the live event
+   stream, and the negotiation transcript under any trade.
+
+Prefer running it yourself? The local quickstart below runs the full stack with one command per
+service, no PayPal credentials needed (`LLM_MODE=off` uses deterministic fallbacks).
 
 ## The problem it addresses
 
@@ -23,7 +42,10 @@ agents trade inside a ledger, a human owns the limits, and PayPal only sees the 
 - Consumer and provider agent registry with status, region, capabilities, balances, policies, and
   PayPal receiver metadata.
 - Provider selection using price, availability, uptime, verification history, and reputation.
-- Multi-round negotiation with deterministic fallback when live AI is disabled.
+- Up to 5-round LLM negotiation where each agent draws a personality archetype (aggressive,
+  cooperative, deadline-driven, analytical, opportunistic) that shapes opening gap, concession
+  speed and patience; time pressure rises as the deadline nears. Deterministic fallback when
+  live AI is disabled.
 - Machine-readable guardrails for price bands, per-trade limits, daily limits, allowlists, velocity,
   approvals, and retry behavior.
 - Signed HMAC worker dispatch with replay protection and request timeouts.
@@ -133,7 +155,7 @@ consumer agent            orchestrator (API)                provider agent
      │                          │                                │
      │ 1. request job           │                                │
      ├─────────────────────────>│ 2. select provider (price/uptime)
-     │                          │ 3. negotiate, max 3 rounds ────>│
+     │                          │ 3. negotiate, max 5 rounds ────>│
      │<─────────────────────────┤    (LLM proposes, guardrails decide)
      │                          │ 4. escrow buyer balance
      │                          │ 5. signed job dispatch ────────>│ worker
@@ -276,8 +298,12 @@ OpenAPI: `/docs`. Postman collection: `postman/aeon.collection.json`.
   is what a PayPal Agent Toolkit host connects to; every tool is read-only or proposing, so no MCP
   client can move money without the guardrail and approval path.
 - **Cloudflare Workers AI** — negotiation moves and credit decisions, cached for replay.
-- **MongoDB** — double-entry ledger, JSON-schema validators, TTL collections, unique idempotency keys.
-- **React + AG Grid + React Flow**, **FastAPI**, **Render** (`render.yaml`).
+- **MongoDB** — double-entry ledger, user accounts (bcrypt), JSON-schema validators, TTL
+  collections, unique idempotency keys.
+- **React + AG Grid** (every data view: trades, ledger, payouts, agents, approvals, audit) +
+  **React Flow**, **FastAPI**, **Render** (3 services + this dashboard served by the API).
+- Sponsor tools used: **AG Grid**, **Render**, **Postman** (collection included at
+  `postman/aeon.collection.json`).
 
 ## Deployment
 

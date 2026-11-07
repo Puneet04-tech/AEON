@@ -1,4 +1,6 @@
-worker-atlas.err
-worker-atlas.log
-worker-boreal.err
-worker-boreal.log
+
+# QA artifacts
+qa-*.mjs
+qa-*.ps1
+*.png
+!docs/**/*.png
