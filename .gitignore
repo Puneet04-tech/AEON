@@ -4,3 +4,6 @@ qa-*.mjs
 qa-*.ps1
 *.png
 !docs/**/*.png
+
+worker-*.log
+worker-*.err
