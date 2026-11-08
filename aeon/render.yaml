@@ -50,6 +50,10 @@ services:
         sync: false
       - key: AUTO_SEED
         value: "true"
+      # Demo trade sizes are cents, so the human-approval path is scaled down:
+      # a settled trade's payout batch now requires an operator decision.
+      - key: APPROVAL_THRESHOLD_MICRO
+        value: "50000"
 
   - type: web
     name: aeon-worker-atlas

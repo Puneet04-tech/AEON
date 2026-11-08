@@ -120,13 +120,18 @@ body {
 .sys-top-bar {
   grid-column: 1 / -1;
   grid-row: 1;
-  height: 36px;
+  /* Auto height: the status chips wrap instead of being clipped on narrow screens. */
+  min-height: 36px;
+  height: auto;
   background-color: var(--neutral-surface);
   border-bottom: 1px solid var(--neutral-border-strong);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: flex-start;
+  gap: 6px 12px;
+  padding: 4px 12px;
   box-sizing: border-box;
 }
 

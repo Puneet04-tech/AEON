@@ -44,10 +44,10 @@ export default function LeftRailNavigation() {
           disabled={!operator || !!busy}
         />
         <div style={{ flex: 1 }} />
-        {role === "judge" && (
+        {(role === "judge" || operator) && (
           <NavButton
             icon="⚙"
-            tooltip="Judge Scenario Controller"
+            tooltip={role === "judge" ? "Judge Scenario Controller" : "Scenario Controller"}
             onClick={() => setSandboxOpen(true)}
             disabled={!!busy}
           />

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import {
   type Agent, type Approval, type AuditEntry, type InvariantReport, type LedgerEntry,
   type PayoutItem, type PublicConfig, type Role, type StreamEvent, type Trade, type ExecutionEvidence, type Dispute, type HackathonReadiness,
-  api, getAuthState, getToken, setAuthState, setToken,
+  api, formatMoney, getAuthState, getToken, setAuthState, setToken,
 } from "./api";
 
 export type Tab = "ledger" | "trades" | "payouts" | "agents" | "approvals" | "audit";
@@ -49,6 +49,7 @@ interface ConsoleState {
   toggleKillSwitch: () => Promise<void>;
   decide: (id: string, decision: "APPROVED" | "REJECTED") => Promise<void>;
   toggleAgent: (agent: Agent) => Promise<void>;
+  setWorkerChaos: (workerId: string, workerUrl: string, fail: boolean, corrupt?: boolean) => Promise<void>;
   fund: (agentId: string, amountMicro: number) => Promise<void>;
   capturePendingFunding: () => Promise<void>;
   showTreasurer: () => Promise<void>;
@@ -107,7 +108,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
       if (getToken()) {
         const auth = getAuthState();
         if (auth) {
-          set({ role: auth.role, quotas: auth.quotas });
+          set({ role: auth.role, quotas: auth.quotas ?? null });
           await get().refresh();
         } else {
           setToken(null);
@@ -133,7 +134,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     const session = await api.login(email, password);
     setToken(session.token);
     setAuthState(session.role, session.quotas);
-    set({ role: session.role, quotas: session.quotas });
+    set({ role: session.role, quotas: session.quotas ?? null });
     void get().refresh();
   },
 
@@ -141,7 +142,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     const session = await api.signup(email, password);
     setToken(session.token);
     setAuthState(session.role, session.quotas);
-    set({ role: session.role, quotas: session.quotas });
+    set({ role: session.role, quotas: session.quotas ?? null });
     void get().refresh();
   },
 
@@ -149,7 +150,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     const session = await api.judge();
     setToken(session.token);
     setAuthState("judge", session.quotas);
-    set({ role: "judge", quotas: session.quotas });
+    set({ role: "judge", quotas: session.quotas ?? null });
     await get().refresh();
   },
 
@@ -284,7 +285,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
       const run = await api.scenario(name);
       set({ toast: { text: `${name}: ${run.state}`, kind: run.state === "COMPLETED" ? "ok" : "error" } });
       const me = await api.me().catch(() => null);
-      if (me) set({ quotas: me.quotas });
+      if (me) set({ quotas: me.quotas ?? null });
       await get().refresh();
     } catch (error) {
       set({ toast: { text: error instanceof Error ? error.message : "scenario failed", kind: "error" } });
@@ -324,6 +325,26 @@ export const useConsole = create<ConsoleState>((set, get) => ({
     }
   },
 
+  setWorkerChaos: async (workerId, workerUrl, fail, corrupt = false) => {
+    set({ busy: fail ? "Injecting worker chaos…" : "Restoring worker…" });
+    try {
+      await api.chaos(workerId, workerUrl, fail, corrupt);
+      set({
+        toast: {
+          text: fail
+            ? `Chaos active on ${workerId}${corrupt ? " (corrupt results)" : " (forced failure)"}`
+            : `${workerId} restored`,
+          kind: "ok",
+        },
+      });
+      await get().refresh();
+    } catch (error) {
+      set({ toast: { text: error instanceof Error ? error.message : "chaos control failed", kind: "error" } });
+    } finally {
+      set({ busy: null });
+    }
+  },
+
   fund: async (agentId, amountMicro) => {
     set({ busy: "Creating PayPal order…" });
     try {
@@ -358,7 +379,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
       localStorage.removeItem("aeon.pendingFunding");
       set({
         pendingFunding: null,
-        toast: { text: `Captured ${funding.amount_micro} µUSD for ${funding.agent_id}`, kind: "ok" },
+        toast: { text: `Captured ${formatMoney(funding.amount_micro)} for ${funding.agent_id}`, kind: "ok" },
       });
       await get().refresh();
     } catch (error) {
@@ -376,7 +397,7 @@ export const useConsole = create<ConsoleState>((set, get) => ({
         : "guardrail ok";
       set({
         toast: {
-          text: `Treasurer (${plan.treasurer.llm.source}): ${plan.treasurer.note} — ${plan.totals.items} item(s), ${plan.totals.amount_micro} µUSD payable, ${verdict}`,
+          text: `Treasurer (${plan.treasurer.llm.source}): ${plan.treasurer.note} — ${plan.totals.items} item(s), ${formatMoney(plan.totals.amount_micro)} payable, ${verdict}`,
           kind: plan.treasurer.recommend ? "ok" : "error",
         },
       });

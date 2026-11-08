@@ -52,7 +52,7 @@ export default function TopBar() {
         title="Sum of every ledger posting must be zero"
       >
         <span className="dot" />
-        INVARIANT {invariant ? compactMoney(invariant.sum_micro) : "0"} µUSD {invariantOk ? "✓" : "✕"}
+        INVARIANT {invariant ? compactMoney(invariant.sum_micro) : "0"} USD {invariantOk ? "✓" : "✕"}
       </span>
 
       <button

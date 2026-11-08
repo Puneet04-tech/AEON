@@ -1,7 +1,7 @@
 """Trade lifecycle: happy path, guardrail rejection, worker failure + reroute."""
 import pytest
 
-from app.ledger.service import AGENT_AVAILABLE, AGENT_ESCROW, LedgerService
+from app.ledger.service import AGENT_AVAILABLE, AGENT_DISPUTE_HOLD, AGENT_ESCROW, LedgerService
 from app.services import trades as trades_service
 from tests.conftest import fake_dispatch
 
@@ -23,6 +23,28 @@ async def test_happy_path_settles_and_balances(db, seeded, monkeypatch):
     assert await ledger.balance("agt_cirrus", AGENT_AVAILABLE) > 0
     assert (await ledger.invariant())["ok"] is True
     assert trade["negotiation"]["rounds"] >= 1
+
+
+async def test_dispute_holds_net_proceeds_not_gross(db, seeded, client, auth, monkeypatch):
+    """The provider is credited price - fee, so the hold must use that amount."""
+    monkeypatch.setattr(trades_service, "dispatch_job", fake_dispatch())
+    trade = await trades_service.run_trade(db, "agt_atlas", JOB, seller_id="agt_cirrus")
+    assert trade["state"] == "SETTLED"
+    settlement = trade["settlement"]
+
+    response = await client.post(
+        f"/api/v1/trades/{trade['id']}/dispute",
+        json={"reason": "checksum mismatch observed in the evidence envelope"},
+        headers={**auth, "Idempotency-Key": "test-dispute-hold-1"},
+    )
+    assert response.status_code == 201, response.text
+    dispute = response.json()
+    expected = settlement["price_micro"] - settlement["fee_micro"] - settlement["penalty_micro"]
+    assert dispute["amount_micro"] == expected
+
+    ledger = LedgerService(db)
+    assert await ledger.balance("agt_cirrus", AGENT_DISPUTE_HOLD) == expected
+    assert (await ledger.invariant())["ok"] is True
 
 
 async def test_negotiation_transcript_is_stored(db, seeded, monkeypatch):

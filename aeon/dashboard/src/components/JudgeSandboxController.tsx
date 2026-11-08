@@ -4,12 +4,15 @@ import { useConsole } from "../store";
 export default function JudgeSandboxController({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { runScenario, busy, quotas } = useConsole();
   const [activeScenario, setActiveScenario] = useState<string | null>(null);
+  // Operators have no judge quota; treat a missing quota as unlimited.
+  const scenariosLeft = quotas?.scenarios_left ?? null;
 
+  // Descriptions mirror the scenarios implemented in backend/app/services/scenarios.py.
   const scenarios = [
-    { id: "S1", name: "Core Compute Loop", description: "Basic trade execution with metering" },
-    { id: "S2", name: "Fault Ingestion & Bond Slashing", description: "Simulate worker failures and penalties" },
-    { id: "S3", name: "High Volume Settlement", description: "Multiple trades and batch settlement" },
-    { id: "S4", name: "Guardrail Violation", description: "Trigger safety guardrail violations" },
+    { id: "S1", name: "Happy Path", description: "Negotiate, execute on a worker, verify and settle" },
+    { id: "S2", name: "Worker Failure & Bond Penalty", description: "Chaos, refund, reroute and a credit line" },
+    { id: "S3", name: "Forecast Reservation", description: "Weather-priced capacity, then resale" },
+    { id: "S4", name: "Settlement Payout", description: "Net balances and send a PayPal batch" },
   ];
 
   const handleRunScenario = async (id: string) => {
@@ -27,10 +30,10 @@ export default function JudgeSandboxController({ isOpen, onClose }: { isOpen: bo
           Judge Scenario Controller
         </h3>
 
-        {quotas && (
+        {scenariosLeft !== null && (
           <div className="quota-display">
             <span className="label">Scenarios Remaining:</span>
-            <span className="value">{quotas.scenarios_left}</span>
+            <span className="value">{scenariosLeft}</span>
           </div>
         )}
 
@@ -40,7 +43,7 @@ export default function JudgeSandboxController({ isOpen, onClose }: { isOpen: bo
               key={scenario.id}
               className={`sandbox-toggle ${activeScenario === scenario.id ? "active" : ""}`}
               onClick={() => handleRunScenario(scenario.id)}
-              disabled={!!busy || (quotas !== null && quotas.scenarios_left <= 0)}
+              disabled={!!busy || (scenariosLeft !== null && scenariosLeft <= 0)}
             >
               <div className="scenario-header">
                 <span className="scenario-id">{scenario.id}</span>

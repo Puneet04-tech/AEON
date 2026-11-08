@@ -26,7 +26,8 @@ const moneyCol = (headerName: string, width: number, valueGetter: (p: any) => nu
 
 export default function DataConsole() {
   const state = useConsole();
-  const { tab, setTab, selectTrade, decide, toggleAgent, trades, entries, payouts, agents, approvals, audit } = state;
+  const { tab, setTab, selectTrade, decide, toggleAgent, trades, entries, payouts, agents, approvals, audit,
+    role, workers, setWorkerChaos, busy } = state;
   const [selectedApproval, setSelectedApproval] = useState<any>(null);
 
   const columnDefs = useMemo<Record<Tab, ColDef[]>>(() => ({
@@ -35,17 +36,17 @@ export default function DataConsole() {
       { field: "state", headerName: "State", width: 150 },
       { field: "buyer_id", headerName: "Buyer", width: 110 },
       { field: "seller_id", headerName: "Seller", width: 110 },
-      moneyCol("Price (µUSD)", 130, (p) => p.data?.agreed?.price_micro ?? 0),
+      moneyCol("Price (USD)", 130, (p) => p.data?.agreed?.price_micro ?? 0),
       { headerName: "CPU s", width: 80, valueGetter: (p) => p.data?.metering?.cpu_s ?? 0 },
-      { headerName: "Rounds", width: 80, valueGetter: (p) => p.data?.attempt ?? 1 },
-      moneyCol("Penalty (µUSD)", 130, (p) => p.data?.settlement?.penalty_micro ?? 0),
+      { headerName: "Rounds", width: 80, valueGetter: (p) => p.data?.negotiation?.rounds ?? 0 },
+      moneyCol("Penalty (USD)", 130, (p) => p.data?.settlement?.penalty_micro ?? 0),
       { field: "created_at", headerName: "Created", width: 110, valueFormatter: (p) => formatTime(p.value) },
     ],
     ledger: [
       { field: "txn_id", headerName: "Txn", width: 170 },
       { field: "account", headerName: "Account", width: 150 },
       { field: "agent_id", headerName: "Agent", width: 110 },
-      moneyCol("Amount (µUSD)", 150, (p) => p.data?.amount_micro ?? 0),
+      moneyCol("Amount (USD)", 150, (p) => p.data?.amount_micro ?? 0),
       { field: "memo", headerName: "Memo", flex: 1, minWidth: 180 },
       { headerName: "Posted", width: 100, valueGetter: (p) => formatTime(p.data?.posted_at) },
     ],
@@ -53,7 +54,7 @@ export default function DataConsole() {
       { field: "settlement_id", headerName: "Batch", width: 180 },
       { field: "agent_id", headerName: "Agent", width: 110 },
       { field: "receiver", headerName: "Receiver", width: 210 },
-      moneyCol("Amount (µUSD)", 140, (p) => p.data?.amount_micro ?? 0),
+      moneyCol("Amount (USD)", 140, (p) => p.data?.amount_micro ?? 0),
       { field: "state", headerName: "State", width: 110 },
       { field: "paypal_item_id", headerName: "PayPal item", flex: 1, minWidth: 170 },
     ],
@@ -66,15 +67,20 @@ export default function DataConsole() {
       moneyCol("Bond", 110, (p) => p.data?.balances?.bond_micro ?? 0),
       { headerName: "Uptime", width: 90, valueGetter: (p) => p.data?.risk?.uptime_30d ?? 0 },
       { headerName: "Late", width: 70, valueGetter: (p) => p.data?.risk?.late_count ?? 0 },
-      { headerName: "Action", width: 90, colId: "toggle_agent", valueGetter: () => "" },
+      {
+        headerName: "Action", width: 96, colId: "toggle_agent",
+        valueGetter: (p) => (p.data?.status === "ACTIVE" ? "Pause" : "Resume"),
+        cellClass: "cell-action",
+      },
     ],
     approvals: [
       { field: "kind", headerName: "Kind", width: 120 },
       { headerName: "Subject", width: 200, valueGetter: (p) => p.data?.subject?.id ?? "" },
-      moneyCol("Amount (µUSD)", 150, (p) => p.data?.amount_micro ?? 0),
+      moneyCol("Amount (USD)", 150, (p) => p.data?.amount_micro ?? 0),
       { field: "state", headerName: "State", width: 120 },
       { headerName: "Expires", width: 100, valueGetter: (p) => formatTime(p.data?.expires_at) },
-      { headerName: "Decision", width: 150, colId: "decide", valueGetter: () => "" },
+      { headerName: "Decision", width: 150, colId: "decide", valueGetter: () => "Review",
+        cellClass: "cell-action" },
     ],
     audit: [
       { headerName: "At", width: 100, valueGetter: (p) => formatTime(p.data?.at) },
@@ -135,6 +141,35 @@ export default function DataConsole() {
             />
           )}
         </div>
+        {tab === "agents" && role === "operator" && (
+          <div className="worker-chaos">
+            <span className="panel-label">WORKER CHAOS</span>
+            {workers.length === 0 && <span className="empty">No workers reported yet.</span>}
+            {workers.map((worker) => (
+              <div key={worker.url} className="worker-row">
+                <span className={worker.healthy ? "worker-ok" : "worker-down"}>
+                  {worker.healthy ? "healthy" : "down"}
+                </span>
+                <span className="mono worker-url">{worker.url}</span>
+                <button className="ghost" disabled={!!busy}
+                        onClick={() => setWorkerChaos(worker.worker_id || worker.url, worker.url, true, false)}
+                        title="Force this worker to fail signed dispatches">
+                  Fail
+                </button>
+                <button className="ghost" disabled={!!busy}
+                        onClick={() => setWorkerChaos(worker.worker_id || worker.url, worker.url, true, true)}
+                        title="Return corrupted results to exercise verification">
+                  Corrupt
+                </button>
+                <button className="ghost" disabled={!!busy}
+                        onClick={() => setWorkerChaos(worker.worker_id || worker.url, worker.url, false, false)}
+                        title="Clear the chaos flags">
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       {selectedApproval && (
         <ApprovalPanel approval={selectedApproval} onClose={() => setSelectedApproval(null)} />

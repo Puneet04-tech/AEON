@@ -126,6 +126,27 @@ def test_pure_invariant_holds_for_random_postings(amounts, fractions):
     assert invariants.ledger_matches_wallets(entries, wallets)
 
 
+async def test_failed_debit_leaves_no_ledger_trace(db, ledger):
+    """A rejected debit must not append a transaction the wallet never saw."""
+    await fund(ledger, "poor", 500)
+    before = await ledger.entries()
+    with pytest.raises(InsufficientFunds):
+        await ledger.escrow("t-overdraft", "poor", 501)
+
+    assert len(await ledger.entries()) == len(before)
+    assert await db.ledger_txns.find_one({"_id": "trade:t-overdraft:escrow"}) is None
+    assert await ledger.balance("poor", AGENT_AVAILABLE) == 500
+    assert (await ledger.invariant())["ok"] is True
+
+
+async def test_invariant_detects_wallet_cache_drift(db, ledger):
+    await fund(ledger, "a1", 1_000)
+    await db.wallets.update_one({"agent_id": "a1"}, {"$inc": {"available_micro": 25}})
+    report = await ledger.invariant()
+    assert report["ok"] is False
+    assert report["wallet_mismatches"]
+
+
 async def test_invariant_detects_corruption(db, ledger):
     await fund(ledger, "a1", 1_000)
     await db.ledger_entries.insert_one({

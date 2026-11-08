@@ -163,7 +163,9 @@ export interface StreamEvent {
 const TOKEN_KEY = "aeon.token";
 const ROLE_KEY = "aeon.role";
 const QUOTAS_KEY = "aeon.quotas";
-const REQUEST_TIMEOUT_MS = 15000;
+// Trades, settlements and demo resets run synchronously on the API and can take
+// tens of seconds; aborting early reported successful operations as failures.
+const REQUEST_TIMEOUT_MS = 60000;
 
 /**
  * Empty when the console is served by the API (same origin, the default).
@@ -184,9 +186,10 @@ export function setToken(token: string | null): void {
   }
 }
 
-export function setAuthState(role: Role, quotas: { scenarios_left: number }): void {
+export function setAuthState(role: Role, quotas: { scenarios_left: number } | null | undefined): void {
   localStorage.setItem(ROLE_KEY, role);
-  localStorage.setItem(QUOTAS_KEY, JSON.stringify(quotas));
+  // Operators have no judge quota; persist null rather than the string "undefined".
+  localStorage.setItem(QUOTAS_KEY, JSON.stringify(quotas ?? null));
 }
 
 export function getAuthState(): { role: Role; quotas: { scenarios_left: number } } | null {
@@ -329,6 +332,11 @@ export const api = {
   pause: (agentId: string) => request(`/api/v1/agents/${agentId}/pause`, { method: "POST", body: "{}" }, true),
   resume: (agentId: string) => request(`/api/v1/agents/${agentId}/resume`, { method: "POST", body: "{}" }, true),
   workers: () => request<{ workers: any[] }>("/api/v1/workers/health"),
+  chaos: (workerId: string, workerUrl: string, fail: boolean, corrupt = false) =>
+    request(`/api/v1/workers/${encodeURIComponent(workerId)}/chaos`, {
+      method: "POST",
+      body: JSON.stringify({ fail, corrupt, worker_url: workerUrl }),
+    }, true),
   recentEvents: (since = 0) => request<{ events: StreamEvent[] }>(`/api/v1/events/recent?since=${since}`),
   treasurerPlan: () =>
     request<{

@@ -125,7 +125,7 @@ function AgentLabel({ agent }: { agent: any }) {
     <div className={`agent-node ${agent.status !== "ACTIVE" ? "paused" : ""}`}>
       <div className="name">{agent.name}</div>
       <div className="role">{agent.role} · {agent.status}</div>
-      <div className="amount">{compactMoney(available)} µUSD avail</div>
+      <div className="amount">{compactMoney(available)} USD avail</div>
       {escrow > 0 && (
         <div style={{ color: "var(--semantic-pending)", fontSize: 10 }}>{compactMoney(escrow)} in escrow</div>
       )}

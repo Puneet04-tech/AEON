@@ -53,7 +53,14 @@ async def create_dispute(trade_id: str, body: DisputeRequest,
         existing = await db.disputes.find_one({"trade_id": trade_id}, {"_id": 0})
         if existing:
             return existing
-        amount = int((trade.get("settlement") or {}).get("price_micro", 0))
+        # Hold what the provider was actually credited, not the gross price:
+        # settlement books `price - platform fee` (and any SLA penalty) to the
+        # provider, so holding the gross amount can never be covered.
+        settlement = trade.get("settlement") or {}
+        gross = int(settlement.get("price_micro", 0))
+        fee = int(settlement.get("fee_micro", 0))
+        penalty = int(settlement.get("penalty_micro", 0))
+        amount = max(0, gross - fee - penalty)
         if amount <= 0:
             raise HTTPException(status.HTTP_409_CONFLICT, "trade has no settled value")
         try:

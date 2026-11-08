@@ -74,12 +74,15 @@ async def propose_settlement(db, actor: str = "operator", has_approval: bool = F
         raise ValueError("nothing_to_settle")
 
     amount = plan["totals"]["amount_micro"]
-    decision = await policy.check_settlement(db, amount, has_approval)
+    needs_approval = amount >= _approval_threshold()
+    # A batch above the threshold is *queued* for approval instead of being
+    # rejected here; the approval rule is enforced again in execute_settlement,
+    # which only accepts the batch once a human has approved it.
+    decision = await policy.check_settlement(db, amount, has_approval or needs_approval)
     if not decision.passed:
         raise ValueError(f"guardrail: {', '.join(decision.failed)}")
 
     settlement_id = new_settlement_id()
-    needs_approval = amount >= _approval_threshold()
     state = "AWAITING_APPROVAL" if (needs_approval and not has_approval) else "DRAFT"
     now = datetime.now(timezone.utc)
     doc = {

@@ -1,10 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useConsole } from "../store";
 
 export default function FundingDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { agents, fund, busy, pendingFunding, capturePendingFunding } = useConsole();
   const [fundTarget, setFundTarget] = useState("");
   const [fundAmount, setFundAmount] = useState("5");
+
+  // The select shows the first agent before the user touches it, so the target
+  // must be seeded too — otherwise the primary action stays disabled.
+  useEffect(() => {
+    if (!fundTarget && agents.length) setFundTarget(agents[0].id);
+  }, [agents, fundTarget]);
 
   if (!isOpen) return null;
 

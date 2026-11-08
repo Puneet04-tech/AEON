@@ -35,7 +35,7 @@ export default function ApprovalPanel({ approval, onClose }: { approval: any; on
           </div>
           <div className="approval-field">
             <label>Amount</label>
-            <div className="approval-value mono">{formatMoney(approval.amount_micro ?? 0, false)} µUSD</div>
+            <div className="approval-value mono">{formatMoney(approval.amount_micro ?? 0)}</div>
           </div>
           <div className="approval-field">
             <label>Expires</label>

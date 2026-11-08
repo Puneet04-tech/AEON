@@ -21,7 +21,7 @@ def all_transactions_balanced(entries: Iterable[dict]) -> bool:
 
 
 def wallets_non_negative(wallets: Iterable[dict]) -> bool:
-    fields = ("available_micro", "escrow_micro", "bond_micro")
+    fields = ("available_micro", "escrow_micro", "bond_micro", "dispute_hold_micro")
     return all(int(w.get(f, 0)) >= 0 for w in wallets for f in fields)
 
 
@@ -35,12 +35,14 @@ def double_entry_holds(entries: Iterable[dict], wallets: Iterable[dict]) -> bool
 def ledger_matches_wallets(entries: Iterable[dict], wallets: Dict[str, dict]) -> bool:
     """Wallet caches must equal the sum of their ledger lines."""
     expected: Dict[str, Dict[str, int]] = {}
-    field_for = {"agent_available": "available_micro", "agent_escrow": "escrow_micro", "agent_bond": "bond_micro"}
+    fields = ("available_micro", "escrow_micro", "bond_micro", "dispute_hold_micro")
+    field_for = {"agent_available": "available_micro", "agent_escrow": "escrow_micro",
+                 "agent_bond": "bond_micro", "agent_dispute_hold": "dispute_hold_micro"}
     for entry in entries:
         field = field_for.get(entry["account"])
         if not field:
             continue
-        bucket = expected.setdefault(entry["agent_id"], {"available_micro": 0, "escrow_micro": 0, "bond_micro": 0})
+        bucket = expected.setdefault(entry["agent_id"], {name: 0 for name in fields})
         bucket[field] += int(entry["amount_micro"])
     for agent_id, bucket in expected.items():
         wallet = wallets.get(agent_id)

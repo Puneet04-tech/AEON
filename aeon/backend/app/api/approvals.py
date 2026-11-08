@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import mutate
 from app.db.client import get_database
+from app.paypal.client import PayPalError
 from app.security.sessions import Session, require_operator, require_viewer
 from app.services import approvals as approvals_service
 
@@ -31,5 +32,9 @@ async def decide(approval_id: str, body: Decision, request: Request,
                                                   actor="operator", reason=body.reason)
         except ValueError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        except PayPalError as exc:
+            # The approval is already recorded; report why the payout could not run
+            # instead of turning a provider refusal into an opaque 500.
+            raise HTTPException(exc.status, {"code": exc.code, "message": str(exc)})
 
     return await mutate(request, {"approval_id": approval_id, **body.model_dump()}, handler)

@@ -137,6 +137,10 @@ class LedgerService:
         if existing:
             return {"txn_id": existing["txn_id"], "duplicate": True, "entries": []}
 
+        # Fail before writing anything: a debit that cannot be covered must not
+        # leave a transaction behind in the append-only ledger.
+        await self._check_funds(clean)
+
         txn_id = new_id("txn_")
         posted_at = _now()
         entries = []
@@ -150,9 +154,14 @@ class LedgerService:
                 "currency": CURRENCY,
                 "ref": {"type": ref_type, "id": ref_id},
                 "idem_key": f"{idem_key}:{index}",
-                "txn_idem": idem_key,                "memo": memo[:500],
+                "txn_idem": idem_key,
+                "memo": memo[:500],
                 "posted_at": posted_at,
             })
+
+        # Cache first, ledger second. If the append fails the cache updates are
+        # rolled back, so a wallet can never drift from the append-only ledger.
+        applied = await self._apply_to_caches(clean, actor)
         try:
             await self.db.ledger_txns.insert_one({
                 "_id": idem_key, "txn_id": txn_id, "kind": txn_kind,
@@ -160,16 +169,19 @@ class LedgerService:
                 "currency": CURRENCY, "amount_micro": sum(l["amount_micro"] for l in clean if l["amount_micro"] > 0),
                 "posted_at": posted_at, "actor": actor,
             })
-        except DuplicateKeyError:
-            dup = await self.db.ledger_txns.find_one({"_id": idem_key})
-            return {"txn_id": (dup or {}).get("txn_id", txn_id), "duplicate": True, "entries": []}
-        try:
             await self.db.ledger_entries.insert_many(entries, ordered=True)
         except DuplicateKeyError:
+            # Another writer owns this idempotency key; undo ours and return theirs.
+            await self._rollback_caches(applied)
+            await self.db.ledger_entries.delete_many({"txn_id": txn_id})
             dup = await self.db.ledger_txns.find_one({"_id": idem_key})
-            return {"txn_id": dup["txn_id"] if dup else txn_id, "duplicate": True, "entries": []}
+            return {"txn_id": (dup or {}).get("txn_id", txn_id), "duplicate": True, "entries": []}
+        except Exception:
+            await self._rollback_caches(applied)
+            await self.db.ledger_entries.delete_many({"txn_id": txn_id})
+            await self.db.ledger_txns.delete_one({"_id": idem_key, "txn_id": txn_id})
+            raise
 
-        await self._apply_to_caches(clean, actor)
         logger.info("ledger_posted", txn_id=txn_id, kind=txn_kind, ref=ref_id,
                     amount=sum(l["amount_micro"] for l in clean if l["amount_micro"] > 0))
         return {"txn_id": txn_id, "duplicate": False, "entries": entries}
@@ -195,30 +207,67 @@ class LedgerService:
             raise LedgerError(f"unbalanced transaction: sum={total}")
         return clean
 
-    async def _apply_to_caches(self, lines: List[dict], actor: str) -> None:
+    async def _check_funds(self, lines: List[dict]) -> None:
+        """Raise before any write when a debit cannot be covered."""
         for line in lines:
             account = line["account"]
             amount = line["amount_micro"]
-            if account in AGENT_ACCOUNTS:
+            if account in AGENT_ACCOUNTS and amount < 0:
                 field = AGENT_ACCOUNTS[account]
-                agent_id = line["agent_id"]
-                await self.wallet(agent_id)
-                if amount < 0:
-                    result = await self.db.wallets.update_one(
-                        {"agent_id": agent_id, field: {"$gte": -amount}},
-                        {"$inc": {field: amount, "version": 1}, "$set": {"updated_at": _now()}},
-                    )
-                    if result.modified_count != 1:
-                        current = await self.db.wallets.find_one({"agent_id": agent_id}) or {}
-                        raise InsufficientFunds(agent_id, account, -amount, int(current.get(field, 0)))
-                else:
-                    await self.db.wallets.update_one(
-                        {"agent_id": agent_id},
-                        {"$inc": {field: amount, "version": 1}, "$set": {"updated_at": _now()}},
-                    )
+                wallet = await self.wallet(line["agent_id"])
+                held = int(wallet.get(field, 0))
+                if held < -amount:
+                    raise InsufficientFunds(line["agent_id"], account, -amount, held)
+
+    async def _apply_to_caches(self, lines: List[dict], actor: str) -> List[dict]:
+        """Apply wallet/account cache updates, rolling back if one of them fails."""
+        applied: List[dict] = []
+        try:
+            for line in lines:
+                account = line["account"]
+                amount = line["amount_micro"]
+                if account in AGENT_ACCOUNTS:
+                    field = AGENT_ACCOUNTS[account]
+                    agent_id = line["agent_id"]
+                    await self.wallet(agent_id)
+                    if amount < 0:
+                        result = await self.db.wallets.update_one(
+                            {"agent_id": agent_id, field: {"$gte": -amount}},
+                            {"$inc": {field: amount, "version": 1}, "$set": {"updated_at": _now()}},
+                        )
+                        if result.modified_count != 1:
+                            current = await self.db.wallets.find_one({"agent_id": agent_id}) or {}
+                            raise InsufficientFunds(agent_id, account, -amount, int(current.get(field, 0)))
+                    else:
+                        await self.db.wallets.update_one(
+                            {"agent_id": agent_id},
+                            {"$inc": {field: amount, "version": 1}, "$set": {"updated_at": _now()}},
+                        )
+                await self.db.account_totals.update_one(
+                    {"_id": account},
+                    {"$inc": {"amount_micro": amount}, "$set": {"updated_at": _now()}},
+                    upsert=True,
+                )
+                applied.append(line)
+        except Exception:
+            await self._rollback_caches(applied)
+            raise
+        return applied
+
+    async def _rollback_caches(self, applied: List[dict]) -> None:
+        """Undo cache changes for a posting that will not be committed."""
+        for line in reversed(applied):
+            account = line["account"]
+            amount = line["amount_micro"]
+            if account in AGENT_ACCOUNTS:
+                await self.db.wallets.update_one(
+                    {"agent_id": line["agent_id"]},
+                    {"$inc": {AGENT_ACCOUNTS[account]: -amount, "version": 1},
+                     "$set": {"updated_at": _now()}},
+                )
             await self.db.account_totals.update_one(
                 {"_id": account},
-                {"$inc": {"amount_micro": amount}, "$set": {"updated_at": _now()}},
+                {"$inc": {"amount_micro": -amount}, "$set": {"updated_at": _now()}},
                 upsert=True,
             )
 
@@ -370,30 +419,55 @@ class LedgerService:
 
     # -------------------------------------------------------------- integrity
     async def invariant(self) -> dict:
-        """Check the three blueprint invariants and return a report."""
+        """Check the blueprint invariants and reconcile caches against the ledger.
+
+        Three things must hold: every transaction sums to zero, no wallet field
+        is negative, and every wallet cache equals the sum of its ledger lines.
+        Without the third check a failed debit could silently strand a ledger
+        transaction that the wallet never saw.
+        """
         cursor = self.db.ledger_entries.find({}, {"amount_micro": 1, "txn_id": 1, "account": 1, "agent_id": 1})
         total = 0
         by_txn: Dict[str, int] = {}
+        expected: Dict[tuple, int] = {}
         async for entry in cursor:
             amount = int(entry["amount_micro"])
             total += amount
             by_txn[entry["txn_id"]] = by_txn.get(entry["txn_id"], 0) + amount
+            field = AGENT_ACCOUNTS.get(entry.get("account"))
+            if field and entry.get("agent_id"):
+                key = (entry["agent_id"], field)
+                expected[key] = expected.get(key, 0) + amount
         unbalanced = [txn for txn, amount in by_txn.items() if amount != 0]
 
         negative: List[dict] = []
-        async for wallet in self.db.wallets.find({}, {"_id": 0}):
+        mismatches: List[dict] = []
+        wallets = [wallet async for wallet in self.db.wallets.find({}, {"_id": 0})]
+        seen = set()
+        for wallet in wallets:
+            agent_id = wallet["agent_id"]
             for field in AGENT_ACCOUNTS.values():
-                if int(wallet.get(field, 0)) < 0:
-                    negative.append({"agent_id": wallet["agent_id"], "field": field,
-                                     "amount_micro": int(wallet.get(field, 0))})
+                cached = int(wallet.get(field, 0))
+                ledger_amount = expected.get((agent_id, field), 0)
+                seen.add((agent_id, field))
+                if cached < 0:
+                    negative.append({"agent_id": agent_id, "field": field, "amount_micro": cached})
+                if cached != ledger_amount:
+                    mismatches.append({"agent_id": agent_id, "field": field,
+                                       "wallet_micro": cached, "ledger_micro": ledger_amount})
+        missing = [{"agent_id": agent_id, "field": field, "wallet_micro": 0,
+                    "ledger_micro": amount}
+                   for (agent_id, field), amount in expected.items()
+                   if (agent_id, field) not in seen and amount != 0]
 
-        ok = total == 0 and not unbalanced and not negative
+        ok = total == 0 and not unbalanced and not negative and not mismatches and not missing
         return {
             "ok": ok,
             "sum_micro": total,
             "transactions": len(by_txn),
             "unbalanced_txns": unbalanced[:20],
             "negative_wallets": negative[:20],
+            "wallet_mismatches": (mismatches + missing)[:20],
             "checked_at": _now().isoformat(),
         }
 

@@ -36,7 +36,34 @@ async def readiness(session: Session = Depends(require_viewer)):
     }
     from app.ledger.service import LedgerService
 
-    checks["ledger_invariant"] = (await LedgerService(db).invariant())["ok"]
+    invariant = await LedgerService(db).invariant()
+    checks["ledger_invariant"] = invariant["ok"]
+
+    actions = []
+    if not checks["paypal_sandbox_configured"]:
+        actions.append("Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET to sandbox credentials.")
+    if not checks["paypal_webhook_configured"]:
+        actions.append("Set PAYPAL_WEBHOOK_ID after creating the PayPal sandbox webhook.")
+    if not checks["workers_healthy"]:
+        unhealthy = [worker.get("url", "unknown") for worker in workers if not worker.get("healthy")]
+        actions.append(
+            "Fix WORKER_URLS: " + ", ".join(unhealthy) + " failed its health check."
+            if unhealthy else "Configure WORKER_URLS so at least one worker is healthy."
+        )
+    if invalid_receivers:
+        actions.append("Replace seeded provider example.com emails with PayPal sandbox receiver emails.")
+    if not checks["evidence_available"]:
+        actions.append("Run one verified trade before recording the demo.")
+    if not invariant["ok"]:
+        detail = ""
+        if invariant.get("wallet_mismatches"):
+            detail = " Wallet caches disagree with the ledger; rebuild them."
+        elif invariant.get("negative_wallets"):
+            detail = " A wallet balance is negative; inspect the postings."
+        elif invariant.get("unbalanced_txns"):
+            detail = " A transaction does not sum to zero."
+        actions.append("Repair the ledger before presenting." + detail)
+
     return {
         "ready": all(checks.values()),
         "checks": checks,
@@ -44,12 +71,5 @@ async def readiness(session: Session = Depends(require_viewer)):
         "invalid_receivers": invalid_receivers,
         "trade_count": await db.trades.count_documents({}),
         "evidence_count": await db.execution_evidence.count_documents({}),
-        "next_actions": [
-            "Set PAYPAL_WEBHOOK_ID after creating the PayPal sandbox webhook."
-            if not checks["paypal_webhook_configured"] else "",
-            "Replace seeded provider example.com emails with PayPal sandbox receiver emails."
-            if invalid_receivers else "",
-            "Run one verified trade before recording the demo."
-            if not checks["evidence_available"] else "",
-        ],
+        "next_actions": actions or ["All checks passed - ready to record the demo."],
     }

@@ -150,6 +150,30 @@ async def test_settlement_requires_approval_above_threshold(db, seeded, monkeypa
     assert result["execution"]["state"] == "SUCCEEDED"
 
 
+async def test_settlement_over_configured_threshold_queues_approval(db, seeded, monkeypatch):
+    """A batch at the configured threshold must wait for approval, not be rejected.
+
+    The guardrail and the approval queue read the same setting, so an ordering bug
+    here made the AWAITING_APPROVAL state unreachable in any real deployment.
+    """
+    from app.services import trades as trades_service
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "APPROVAL_THRESHOLD_MICRO", 10)
+    monkeypatch.setattr(trades_service, "dispatch_job", fake_dispatch())
+    job = {"type": "image_resize", "size": 640 * 480, "params": {}, "deadline_s": 30}
+    await trades_service.run_trade(db, "agt_atlas", job, seller_id="agt_cirrus")
+
+    draft = await settlement_service.propose_settlement(db, actor="operator", has_approval=False)
+    assert draft["state"] == "AWAITING_APPROVAL"
+    assert draft["approval_id"]
+
+    from app.services import approvals
+
+    pending = await approvals.list_approvals(db, state="PENDING")
+    assert any(a["id"] == draft["approval_id"] for a in pending)
+
+
 async def test_settlement_failure_reverses_funds(db, seeded, monkeypatch):
     from app.paypal import payouts
     from app.paypal.client import PayPalError
