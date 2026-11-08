@@ -4,8 +4,9 @@ import { useConsole } from "../store";
 export default function JudgeSandboxController({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { runScenario, busy, quotas } = useConsole();
   const [activeScenario, setActiveScenario] = useState<string | null>(null);
-  // Operators have no judge quota; treat a missing quota as unlimited.
-  const scenariosLeft = quotas?.scenarios_left ?? null;
+  // Operators report -1 to mean "no quota"; only a real count is a limit, and a
+  // negative value must not read as "none left" or their buttons stay disabled.
+  const scenariosLeft = quotas && quotas.scenarios_left >= 0 ? quotas.scenarios_left : null;
 
   // Descriptions mirror the scenarios implemented in backend/app/services/scenarios.py.
   const scenarios = [

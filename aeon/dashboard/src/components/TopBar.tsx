@@ -42,7 +42,7 @@ export default function TopBar() {
 
       <span className="spacer" />
 
-      {role === "judge" && quotas && (
+      {role === "judge" && quotas && quotas.scenarios_left >= 0 && (
         <span className="pill warn">JUDGE RUNS LEFT · {quotas.scenarios_left}</span>
       )}
 
