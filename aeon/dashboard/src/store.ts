@@ -2,7 +2,7 @@ import { create } from "zustand";
 import {
   type Agent, type Approval, type AuditEntry, type InvariantReport, type LedgerEntry,
   type PayoutItem, type PublicConfig, type Role, type StreamEvent, type Trade, type ExecutionEvidence, type Dispute, type HackathonReadiness,
-  api, formatMoney, getAuthState, getToken, setAuthState, setToken,
+  api, formatMoney, getToken, setAuthState, setToken,
 } from "./api";
 
 export type Tab = "ledger" | "trades" | "payouts" | "agents" | "approvals" | "audit";
@@ -106,12 +106,17 @@ export const useConsole = create<ConsoleState>((set, get) => ({
       const config = await api.config();
       set({ config, booted: true });
       if (getToken()) {
-        const auth = getAuthState();
-        if (auth) {
-          set({ role: auth.role, quotas: auth.quotas ?? null });
-          await get().refresh();
-        } else {
+        // A stored token can outlive its session (the API restarts with a new
+        // signing secret), and trusting it booted a console whose every request
+        // 401'd while showing placeholder config. Validate it instead.
+        const me = await api.me().catch(() => null);
+        if (!me) {
           setToken(null);
+          set({ role: null, quotas: null });
+        } else {
+          setAuthState(me.role, me.quotas);
+          set({ role: me.role, quotas: me.quotas ?? null });
+          await get().refresh();
         }
       }
       if (getToken()) {

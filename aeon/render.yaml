@@ -41,7 +41,7 @@ services:
       - key: OPERATOR_PASSWORD_HASH
         sync: false
       - key: WORKER_URLS
-        value: https://aeon-worker-atlas.onrender.com,https://aeon-worker-boreal.onrender.com
+        value: https://aeon-worker-1.onrender.com,https://aeon-1.onrender.com
       - key: ALLOWED_ORIGIN
         sync: false
       - key: PAYPAL_RETURN_URL
@@ -56,7 +56,7 @@ services:
         value: "50000"
 
   - type: web
-    name: aeon-worker-atlas
+    name: aeon-worker-1
     runtime: python
     plan: free
     rootDir: worker
@@ -67,12 +67,12 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: WORKER_ID
-        value: worker-atlas
+        value: worker-1
       - key: HMAC_SHARED_SECRET
         sync: false
 
   - type: web
-    name: aeon-worker-boreal
+    name: aeon-1
     runtime: python
     plan: free
     rootDir: worker
@@ -83,6 +83,6 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: WORKER_ID
-        value: worker-boreal
+        value: worker-2
       - key: HMAC_SHARED_SECRET
         sync: false
